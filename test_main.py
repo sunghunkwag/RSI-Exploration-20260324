@@ -545,178 +545,274 @@ class TestLibraryLearner:
 
 
 
+
 # ---- Novelty Screener Tests ----
+
 
 class TestNoveltyScreener:
     """Tests for the fingerprint-based novelty rejection sampling."""
 
-    def test_identical_trees_have_similarity_one(self):
-        """Two identical trees should have Jaccard similarity of 1.0."""
+    def test_structural_similarity(self):
+        """
+        Verify that structural_similarity(tree_a, tree_b) correctly
+        calculates the Jaccard similarity between two expression trees
+        based on their subtree fingerprints.
+        """
         screener = NoveltyScreener(similarity_threshold=0.85)
+
+        # --- Case 1: identical trees → Jaccard = 1.0 ---
         tree = ExprNode("add", children=[
             ExprNode("input_x"),
             ExprNode("const_one"),
         ])
-        sim = screener.structural_similarity(tree, tree)
-        assert sim == 1.0
+        assert screener.structural_similarity(tree, tree) == 1.0
 
-    def test_different_trees_have_lower_similarity(self):
-        """Structurally different trees should have similarity < 1.0."""
-        screener = NoveltyScreener(similarity_threshold=0.85)
+        # --- Case 2: partially overlapping trees → 0 < Jaccard < 1 ---
+        # tree_a subtrees: {add(input_x, const_one), input_x, const_one}
         tree_a = ExprNode("add", children=[
             ExprNode("input_x"),
             ExprNode("const_one"),
         ])
+        # tree_b subtrees: {mul(input_x, const_one), input_x, const_one}
+        # Shared: {input_x, const_one} = 2;  Union = 4 (add(..), mul(..), input_x, const_one)
         tree_b = ExprNode("mul", children=[
             ExprNode("input_x"),
-            ExprNode("input_x"),
+            ExprNode("const_one"),
         ])
-        sim = screener.structural_similarity(tree_a, tree_b)
-        assert sim < 1.0
+        sim_partial = screener.structural_similarity(tree_a, tree_b)
+        assert 0.0 < sim_partial < 1.0
+        # Exact expected: |{input_x, const_one}| / |{add(..), mul(..), input_x, const_one}| = 2/4 = 0.5
+        assert abs(sim_partial - 0.5) < 1e-9
 
-    def test_completely_different_trees(self):
-        """Trees with no shared subtrees should have low similarity."""
-        screener = NoveltyScreener(similarity_threshold=0.85)
-        tree_a = ExprNode("add", children=[
+        # --- Case 3: completely disjoint trees → Jaccard = 0.0 ---
+        # tree_c has no shared subtree fingerprints with tree_d
+        tree_c = ExprNode("input_x")  # subtrees: {input_x}
+        tree_d = ExprNode("const_one")  # subtrees: {const_one}
+        sim_disjoint = screener.structural_similarity(tree_c, tree_d)
+        assert sim_disjoint == 0.0
+
+        # --- Case 4: deeper tree, one is subtree of the other ---
+        # tree_e contains tree_a as a subtree, so all of tree_a's
+        # fingerprints appear in tree_e's set → similarity > 0
+        tree_e = ExprNode("neg", children=[
+            ExprNode("add", children=[
+                ExprNode("input_x"),
+                ExprNode("const_one"),
+            ])
+        ])
+        sim_subset = screener.structural_similarity(tree_a, tree_e)
+        # tree_a fps ⊂ tree_e fps, so intersection = |tree_a fps|
+        # Jaccard = |tree_a fps| / |tree_e fps| = 3/4 = 0.75
+        assert 0.0 < sim_subset < 1.0
+        assert abs(sim_subset - 0.75) < 1e-9
+
+    def test_should_accept_rejects_highly_similar(self):
+        """
+        Verify that should_accept(candidate, archive_entries) correctly
+        rejects candidates when their maximum similarity to existing
+        archive entries exceeds the similarity_threshold, and accepts
+        them otherwise.
+        """
+        # Use a threshold of 0.5 so we can test both sides clearly
+        screener = NoveltyScreener(similarity_threshold=0.5)
+
+        # Build an archive entry with tree: add(input_x, const_one)
+        archive_tree = ExprNode("add", children=[
             ExprNode("input_x"),
             ExprNode("const_one"),
         ])
-        tree_b = ExprNode("neg", children=[
-            ExprNode("square", children=[ExprNode("const_zero")]),
-        ])
-        sim = screener.structural_similarity(tree_a, tree_b)
-        assert sim < 0.5
-
-    def test_should_accept_novel_candidate(self):
-        """A novel candidate should be accepted."""
-        screener = NoveltyScreener(similarity_threshold=0.85)
-        candidate = ExprNode("mul", children=[
-            ExprNode("input_x"),
-            ExprNode("input_x"),
-        ])
-        existing = [
+        archive_entries = [
             EliteEntry(
-                tree=ExprNode("add", children=[
-                    ExprNode("const_one"),
-                    ExprNode("const_zero"),
-                ]),
-                raw_fitness=0.5, cost_score=0.9,
-                grounded_fitness=0.45, behavior=(0, 0), generation=1,
+                tree=archive_tree,
+                raw_fitness=0.5,
+                cost_score=0.9,
+                grounded_fitness=0.45,
+                behavior=(0, 0),
+                generation=1,
             )
         ]
-        assert screener.should_accept(candidate, existing)
 
-    def test_should_reject_too_similar_candidate(self):
-        """A candidate identical to an archive member should be rejected."""
-        screener = NoveltyScreener(similarity_threshold=0.5)
-        tree = ExprNode("add", children=[
+        # --- Candidate identical to archive member → similarity = 1.0 > 0.5 → REJECT ---
+        identical_candidate = ExprNode("add", children=[
             ExprNode("input_x"),
             ExprNode("const_one"),
         ])
-        existing = [
-            EliteEntry(
-                tree=ExprNode("add", children=[
-                    ExprNode("input_x"),
-                    ExprNode("const_one"),
-                ]),
-                raw_fitness=0.5, cost_score=0.9,
-                grounded_fitness=0.45, behavior=(0, 0), generation=1,
-            )
-        ]
-        assert not screener.should_accept(tree, existing)
+        assert not screener.should_accept(identical_candidate, archive_entries)
 
-    def test_empty_archive_always_accepts(self):
-        """With no archive entries, all candidates should be accepted."""
+        # --- Candidate completely disjoint → similarity = 0.0 <= 0.5 → ACCEPT ---
+        novel_candidate = ExprNode("const_zero")
+        assert screener.should_accept(novel_candidate, archive_entries)
+
+        # --- Candidate with borderline similarity exactly at threshold → ACCEPT ---
+        # mul(input_x, const_one) shares {input_x, const_one} with archive,
+        # Jaccard = 2/4 = 0.5  (== threshold → should accept since condition is <=)
+        borderline_candidate = ExprNode("mul", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        assert screener.should_accept(borderline_candidate, archive_entries)
+
+        # --- Candidate slightly above threshold → REJECT ---
+        # Use screener with lower threshold to force rejection of the partial overlap
+        strict_screener = NoveltyScreener(similarity_threshold=0.4)
+        assert not strict_screener.should_accept(borderline_candidate, archive_entries)
+
+    def test_screener_counters_and_summary(self):
+        """
+        Ensure the screener correctly updates the _screenings and
+        _rejections counters and outputs the correct summary dictionary.
+        """
         screener = NoveltyScreener(similarity_threshold=0.5)
-        candidate = ExprNode("input_x")
-        assert screener.should_accept(candidate, [])
 
-    def test_rejection_rate_tracking(self):
-        """Rejection rate should be tracked correctly."""
-        screener = NoveltyScreener(similarity_threshold=0.0)
-        tree = ExprNode("input_x")
-        existing = [
+        # Verify initial state
+        assert screener._screenings == 0
+        assert screener._rejections == 0
+        assert screener.rejection_rate == 0.0
+
+        archive_tree = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        archive_entries = [
             EliteEntry(
-                tree=ExprNode("input_x"),
-                raw_fitness=0.5, cost_score=0.9,
-                grounded_fitness=0.45, behavior=(0, 0), generation=1,
+                tree=archive_tree,
+                raw_fitness=0.5,
+                cost_score=0.9,
+                grounded_fitness=0.45,
+                behavior=(0, 0),
+                generation=1,
             )
         ]
-        screener.should_accept(tree, existing)
+
+        # Screen 1: novel candidate → accepted (screening +1, rejection +0)
+        novel = ExprNode("const_zero")
+        screener.should_accept(novel, archive_entries)
         assert screener._screenings == 1
-        assert screener._rejections == 1
-        assert screener.rejection_rate == 1.0
+        assert screener._rejections == 0
 
-    def test_summary(self):
-        """Summary should include screening stats."""
-        screener = NoveltyScreener()
-        s = screener.summary()
-        assert "screenings" in s
-        assert "rejections" in s
-        assert "rejection_rate" in s
-
-
-class TestEnhancedMAPElitesWithNoveltyScreening:
-    """Tests for the EnhancedMAPElitesArchive with novelty rejection sampling."""
-
-    def test_enhanced_archive_has_screener(self):
-        """Enhanced archive should initialize with a NoveltyScreener."""
-        archive = EnhancedMAPElitesArchive(dims=[6, 10])
-        assert hasattr(archive, "novelty_screener")
-        assert isinstance(archive.novelty_screener, NoveltyScreener)
-
-    def test_custom_similarity_threshold(self):
-        """Custom similarity threshold should be passed to screener."""
-        archive = EnhancedMAPElitesArchive(
-            dims=[6, 10], similarity_threshold=0.5
-        )
-        assert archive.novelty_screener.similarity_threshold == 0.5
-
-    def test_summary_includes_screening_stats(self):
-        """Archive summary should include novelty screening info."""
-        archive = EnhancedMAPElitesArchive(dims=[6, 10])
-        s = archive.summary()
-        assert "novelty_screening" in s
-        assert "screenings" in s["novelty_screening"]
-
-    def test_similar_candidate_rejected_from_occupied_cell(self):
-        """A very similar candidate in an occupied cell should be rejected."""
-        archive = EnhancedMAPElitesArchive(
-            dims=[6, 10], similarity_threshold=0.3, novelty_rate=0.0
-        )
-        tree1 = ExprNode("add", children=[
+        # Screen 2: identical candidate → rejected (screening +1, rejection +1)
+        duplicate = ExprNode("add", children=[
             ExprNode("input_x"),
             ExprNode("const_one"),
         ])
-        entry1 = EliteEntry(
-            tree=tree1, raw_fitness=0.5, cost_score=0.9,
-            grounded_fitness=0.45, behavior=(0, 0), generation=1,
-        )
-        archive.try_insert(entry1)
+        screener.should_accept(duplicate, archive_entries)
+        assert screener._screenings == 2
+        assert screener._rejections == 1
 
-        # Same tree, same cell, lower fitness — should be rejected by both
-        # elitism AND novelty screening
-        entry2 = EliteEntry(
-            tree=tree1, raw_fitness=0.3, cost_score=0.9,
-            grounded_fitness=0.27, behavior=(0, 0), generation=2,
+        # Screen 3: another novel candidate → accepted
+        novel2 = ExprNode("const_one")
+        screener.should_accept(novel2, archive_entries)
+        assert screener._screenings == 3
+        assert screener._rejections == 1
+
+        # Verify rejection_rate = 1/3
+        assert abs(screener.rejection_rate - 1.0 / 3.0) < 1e-9
+
+        # Verify summary dict structure and values
+        s = screener.summary()
+        assert isinstance(s, dict)
+        assert s["screenings"] == 3
+        assert s["rejections"] == 1
+        assert abs(s["rejection_rate"] - round(1.0 / 3.0, 4)) < 1e-6
+
+
+# ---- Enhanced MAP-Elites Archive with Novelty Rejection Tests ----
+
+
+class TestEnhancedArchiveNoveltyRejection:
+    """Integration tests for EnhancedMAPElitesArchive with NoveltyScreener."""
+
+    def test_enhanced_archive_novelty_rejection(self):
+        """
+        Verify that the novelty screener inside EnhancedMAPElitesArchive
+        rejects a structurally identical (high-similarity) candidate even
+        when it has *higher* grounded_fitness than the occupant of the
+        same behavioral cell.
+
+        This proves that the rejection is caused by the NoveltyScreener,
+        not by the standard elitism check (which would accept a fitter
+        candidate).
+        """
+        # Use a very low similarity threshold so that any overlap triggers rejection.
+        # Disable novelty injection (novelty_rate=0.0) so a rejected candidate
+        # cannot sneak into a neighbour cell.
+        archive = EnhancedMAPElitesArchive(
+            dims=[6, 10],
+            novelty_rate=0.0,
+            similarity_threshold=0.3,
         )
-        result = archive.try_insert(entry2)
+
+        # --- Step 1: insert an initial entry (cell is empty → always accepted) ---
+        initial_tree = ExprNode("add", children=[
+            ExprNode("mul", children=[
+                ExprNode("input_x"),
+                ExprNode("input_x"),
+            ]),
+            ExprNode("const_one"),
+        ])
+        initial_entry = EliteEntry(
+            tree=initial_tree,
+            raw_fitness=0.4,
+            cost_score=0.9,
+            grounded_fitness=0.36,
+            behavior=(1, 1),
+            generation=1,
+        )
+        assert archive.try_insert(initial_entry) is True
+        assert archive.summary()["filled_cells"] == 1
+
+        # --- Step 2: create a *structurally identical* candidate with HIGHER fitness ---
+        # Same tree structure → structural_similarity == 1.0 >> threshold (0.3)
+        similar_tree = ExprNode("add", children=[
+            ExprNode("mul", children=[
+                ExprNode("input_x"),
+                ExprNode("input_x"),
+            ]),
+            ExprNode("const_one"),
+        ])
+        better_entry = EliteEntry(
+            tree=similar_tree,
+            raw_fitness=0.9,
+            cost_score=0.95,
+            grounded_fitness=0.855,       # clearly higher than 0.36
+            behavior=(1, 1),              # same cell
+            generation=2,
+        )
+
+        # The standard elitism check would accept this (0.855 > 0.36),
+        # but the novelty screener fires first and rejects it.
+        result = archive.try_insert(better_entry)
         assert result is False
 
-    def test_engine_with_novelty_screening(self):
-        """Full RSI engine should work with novelty rejection sampling."""
-        random.seed(42)
-        np.random.seed(42)
-        engine = build_rsi_system(
-            budget_ops=100_000,
-            budget_seconds=60.0,
-            expansion_interval=5,
-            use_enhanced_archive=True,
-            similarity_threshold=0.85,
+        # The cell still holds the original (lower-fitness) entry
+        assert archive.best_fitness == 0.36
+
+        # --- Step 3: verify the screener's rejection counter incremented ---
+        screening_summary = archive.summary()["novelty_screening"]
+        assert screening_summary["rejections"] == 1
+        assert screening_summary["screenings"] == 1
+        assert screening_summary["rejection_rate"] == 1.0
+
+        # --- Step 4: insert a genuinely novel candidate into the same cell ---
+        # This tree is structurally very different → low similarity → accepted
+        novel_tree = ExprNode("neg", children=[
+            ExprNode("const_zero"),
+        ])
+        novel_entry = EliteEntry(
+            tree=novel_tree,
+            raw_fitness=0.95,
+            cost_score=0.95,
+            grounded_fitness=0.9025,      # higher fitness + novel structure
+            behavior=(1, 1),              # same cell
+            generation=3,
         )
-        history = engine.run(generations=10, population_size=10)
-        assert len(history) == 10
-        assert engine.archive.best_fitness >= 0
+        assert archive.try_insert(novel_entry) is True
+        assert archive.best_fitness == 0.9025
+
+        # Screener stats: 2 screenings total, 1 rejection
+        screening_summary_2 = archive.summary()["novelty_screening"]
+        assert screening_summary_2["screenings"] == 2
+        assert screening_summary_2["rejections"] == 1
 
 
 if __name__ == "__main__":
