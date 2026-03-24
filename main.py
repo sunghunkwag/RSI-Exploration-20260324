@@ -576,9 +576,89 @@ class MAPElitesArchive:
         }
 
 
+
+class NoveltyScreener:
+    """
+    Fingerprint-based novelty rejection sampling for MAP-Elites archives.
+
+    Inspired by the NoveltyJudge in b-albar/evolve-anything, which uses
+    embedding-based similarity scoring with rejection sampling to prevent
+    the archive from filling with near-duplicate solutions.
+
+    This adaptation works with expression tree fingerprints instead of
+    code embeddings, computing structural Jaccard similarity between
+    candidates and existing archive members. Candidates above a
+    similarity threshold are rejected, forcing the search to explore
+    structurally novel regions of the design space at runtime.
+    """
+
+    def __init__(self, similarity_threshold: float = 0.85, max_attempts: int = 3):
+        self.similarity_threshold = similarity_threshold
+        self.max_attempts = max_attempts
+        self._rejections = 0
+        self._screenings = 0
+
+    def _subtree_fingerprints(self, node: ExprNode) -> set:
+        """Collect fingerprints of all subtrees in a tree."""
+        fps = set()
+        fps.add(node.fingerprint())
+        for child in node.children:
+            fps.update(self._subtree_fingerprints(child))
+        return fps
+
+    def structural_similarity(self, tree_a: ExprNode, tree_b: ExprNode) -> float:
+        """
+        Compute Jaccard similarity between two trees based on their
+        subtree fingerprint sets. Returns a value in [0, 1].
+        """
+        fps_a = self._subtree_fingerprints(tree_a)
+        fps_b = self._subtree_fingerprints(tree_b)
+        if not fps_a and not fps_b:
+            return 1.0
+        intersection = fps_a & fps_b
+        union = fps_a | fps_b
+        return len(intersection) / len(union) if union else 1.0
+
+    def max_similarity_to_archive(
+        self, candidate: ExprNode, archive_entries: List[EliteEntry]
+    ) -> float:
+        """Return the maximum similarity between a candidate and all archive entries."""
+        if not archive_entries:
+            return 0.0
+        return max(
+            self.structural_similarity(candidate, entry.tree)
+            for entry in archive_entries
+        )
+
+    def should_accept(
+        self, candidate: ExprNode, archive_entries: List[EliteEntry]
+    ) -> bool:
+        """
+        Screen a candidate for novelty. Returns True if the candidate is
+        sufficiently different from existing archive members.
+        """
+        self._screenings += 1
+        max_sim = self.max_similarity_to_archive(candidate, archive_entries)
+        if max_sim <= self.similarity_threshold:
+            return True
+        self._rejections += 1
+        return False
+
+    @property
+    def rejection_rate(self) -> float:
+        return self._rejections / self._screenings if self._screenings > 0 else 0.0
+
+    def summary(self) -> dict:
+        return {
+            "screenings": self._screenings,
+            "rejections": self._rejections,
+            "rejection_rate": round(self.rejection_rate, 4),
+        }
+
+
 class EnhancedMAPElitesArchive(MAPElitesArchive):
     """
-    Extends MAPElitesArchive with two coverage-ceiling mitigations:
+    Extends MAPElitesArchive with three coverage-ceiling mitigations:
 
     1. Wider behavioral grid (dims [8, 12] by default) for finer-grained
        structural diversity.
@@ -586,29 +666,53 @@ class EnhancedMAPElitesArchive(MAPElitesArchive):
        neighbor cell are accepted with probability `novelty_rate`. This
        prevents premature convergence and allows the archive to keep
        expanding into unexplored behavioral niches.
+    3. Novelty rejection sampling (from b-albar/evolve-anything): candidates
+       that are structurally too similar to existing archive members are
+       rejected before insertion. This forces the evolutionary search to
+       produce genuinely novel structures rather than minor variants,
+       expanding the effective search space at runtime.
 
     Empirical results (50 gen x 20 pop):
       Standard [6,10]:   coverage=0.3333
       Enhanced  [8,12]:  coverage=0.3854-0.4375 depending on domain
     """
 
-    def __init__(self, dims: List[int] = None, novelty_rate: float = 0.15):
+    def __init__(
+        self,
+        dims: List[int] = None,
+        novelty_rate: float = 0.15,
+        similarity_threshold: float = 0.85,
+    ):
         super().__init__(dims or [8, 12])
         self.novelty_rate = novelty_rate
         self._novelty_inserts = 0
+        self.novelty_screener = NoveltyScreener(
+            similarity_threshold=similarity_threshold
+        )
 
     def try_insert(self, entry: EliteEntry) -> bool:
         self._total_tried += 1
         cell = entry.behavior
+
+        # --- Novelty rejection sampling ---
+        # If the cell is already occupied and the candidate is too similar
+        # to existing archive members, reject it to force exploration.
+        if cell in self._grid:
+            archive_entries = list(self._grid.values())
+            if not self.novelty_screener.should_accept(entry.tree, archive_entries):
+                return False
+
         # Standard elitism
         if cell not in self._grid:
             self._grid[cell] = entry
             self._total_inserted += 1
             return True
+
         if entry.grounded_fitness > self._grid[cell].grounded_fitness:
             self._grid[cell] = entry
             self._total_inserted += 1
             return True
+
         # Novelty injection into empty neighbor cells
         if random.random() < self.novelty_rate:
             neighbor = self._find_empty_neighbor(cell)
@@ -617,6 +721,7 @@ class EnhancedMAPElitesArchive(MAPElitesArchive):
                 self._total_inserted += 1
                 self._novelty_inserts += 1
                 return True
+
         return False
 
     def _find_empty_neighbor(self, cell: Tuple[int, ...]) -> Optional[Tuple[int, ...]]:
@@ -633,8 +738,8 @@ class EnhancedMAPElitesArchive(MAPElitesArchive):
     def summary(self) -> dict:
         s = super().summary()
         s["novelty_inserts"] = self._novelty_inserts
+        s["novelty_screening"] = self.novelty_screener.summary()
         return s
-
 
 # ---------------------------------------------------------------------------
 # 6. SELF-IMPROVEMENT ENGINE
@@ -813,6 +918,7 @@ def build_rsi_system(
     library_min_depth: int = 2,
     library_min_freq: int = 2,
     library_max_additions: int = 3,
+    similarity_threshold: float = 0.85,
 ) -> SelfImprovementEngine:
     """
     Factory function to construct a complete RSI system.
@@ -832,6 +938,9 @@ def build_rsi_system(
         library_min_depth: minimum subtree depth for library extraction
         library_min_freq: minimum frequency for a subtree to be extracted
         library_max_additions: maximum new primitives per library learning step
+        similarity_threshold: Jaccard similarity threshold for novelty rejection
+                              sampling (from b-albar/evolve-anything). Candidates
+                              above this threshold are rejected to force exploration.
     """
     if fitness_fn is None:
         fitness_fn = symbolic_regression_fitness
@@ -853,7 +962,7 @@ def build_rsi_system(
     cost_loop = CostGroundingLoop(budget)
 
     if use_enhanced_archive:
-        archive = EnhancedMAPElitesArchive(dims=archive_dims or [8, 12], novelty_rate=0.15)
+        archive = EnhancedMAPElitesArchive(dims=archive_dims or [8, 12], novelty_rate=0.15, similarity_threshold=similarity_threshold)
     else:
         archive = MAPElitesArchive(dims=archive_dims or [6, 10])
 
