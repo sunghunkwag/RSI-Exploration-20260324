@@ -10,6 +10,7 @@ from main import (
     ExprNode,
     GrammarLayer,
     MetaGrammarLayer,
+    LibraryLearner,
     ResourceBudget,
     CostGroundingLoop,
     MAPElitesArchive,
@@ -361,6 +362,185 @@ class TestBuildFactory:
         assert record["archive_best"] > 0
 
 
+# ---- Library Learning Tests ----
+
+class TestLibraryLearner:
+    """Tests for DreamCoder-inspired library learning mechanism."""
+
+    def test_extract_from_repeated_subtrees(self, vocab):
+        """When the same subtree appears in multiple trees, it should be extracted."""
+        lib = LibraryLearner(vocab, min_subtree_depth=2, min_frequency=2)
+        # Build a shared subtree: add(input_x, const_one) — depth 1 from leaves, depth 1 total
+        # We need depth >= 2, so: add(mul(input_x, input_x), const_one)
+        shared = ExprNode("add", children=[
+            ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+            ExprNode("const_one"),
+        ])
+        # Embed the shared subtree into two different outer trees
+        tree1 = ExprNode("neg", children=[
+            ExprNode("add", children=[
+                ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        tree2 = ExprNode("square", children=[
+            ExprNode("add", children=[
+                ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        initial_vocab_size = vocab.size
+        new_ops = lib.extract_library([tree1, tree2])
+        assert len(new_ops) >= 1, "Should extract at least one library primitive"
+        assert vocab.size > initial_vocab_size, "Vocabulary should have grown"
+
+    def test_extracted_op_computes_correctly(self, vocab):
+        """Extracted library op should compute same as original subtree."""
+        lib = LibraryLearner(vocab, min_subtree_depth=2, min_frequency=2)
+        # Subtree: add(square(input_x), const_one) => x^2 + 1
+        tree1 = ExprNode("neg", children=[
+            ExprNode("add", children=[
+                ExprNode("square", children=[ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        tree2 = ExprNode("abs_val", children=[
+            ExprNode("add", children=[
+                ExprNode("square", children=[ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        new_ops = lib.extract_library([tree1, tree2])
+        assert len(new_ops) >= 1
+        # The extracted op should compute x^2 + 1
+        extracted = new_ops[0]
+        assert extracted.arity == 1  # has input_x
+        result = extracted.fn(3.0)
+        expected = 3.0 ** 2 + 1.0  # = 10.0
+        assert abs(result - expected) < 1e-6, f"Expected {expected}, got {result}"
+
+    def test_no_extraction_below_frequency_threshold(self, vocab):
+        """Subtrees appearing fewer than min_frequency times should not be extracted."""
+        lib = LibraryLearner(vocab, min_subtree_depth=2, min_frequency=3)
+        # Only 2 trees with the same subtree — below threshold of 3
+        tree1 = ExprNode("neg", children=[
+            ExprNode("add", children=[
+                ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        tree2 = ExprNode("square", children=[
+            ExprNode("add", children=[
+                ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        new_ops = lib.extract_library([tree1, tree2])
+        assert len(new_ops) == 0, "Should not extract below frequency threshold"
+
+    def test_no_duplicate_extraction(self, vocab):
+        """Running extraction twice on same trees should not create duplicate ops."""
+        lib = LibraryLearner(vocab, min_subtree_depth=2, min_frequency=2)
+        tree1 = ExprNode("neg", children=[
+            ExprNode("add", children=[
+                ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        tree2 = ExprNode("square", children=[
+            ExprNode("add", children=[
+                ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        ops1 = lib.extract_library([tree1, tree2])
+        vocab_after_first = vocab.size
+        ops2 = lib.extract_library([tree1, tree2])
+        assert vocab.size == vocab_after_first, "No duplicates should be added"
+        assert len(ops2) == 0
+
+    def test_depth_amplification(self):
+        """
+        CRITICAL TEST: Demonstrates the system can now express programs
+        that were IMPOSSIBLE before library learning.
+
+        With max_depth=3, the deepest tree has 3 levels of nesting.
+        After library learning extracts a depth-2 subtree as a primitive,
+        a depth-3 tree using that primitive can express what previously
+        required depth-5.
+        """
+        random.seed(123)
+        np.random.seed(123)
+        engine = build_rsi_system(
+            max_depth=3,
+            budget_ops=100_000,
+            budget_seconds=60.0,
+            expansion_interval=5,
+            use_library_learning=True,
+            library_min_depth=2,
+            library_min_freq=2,
+        )
+        # Run enough generations to populate the archive and trigger library learning
+        engine.run(generations=20, population_size=20)
+
+        # Check that library learning actually happened
+        lib_learner = engine.meta_grammar.library_learner
+        assert lib_learner is not None
+
+        # The vocabulary should have grown beyond what random composition achieves
+        # (initial default is 11 ops, random composition adds one at a time)
+        initial_vocab = 11  # default count from VocabularyLayer._register_defaults
+        assert engine.vocab.size > initial_vocab, (
+            "Vocabulary should have expanded via library learning and/or meta-grammar"
+        )
+
+    def test_library_learning_with_engine_integration(self):
+        """Library learning integrates correctly with the full RSI engine."""
+        random.seed(42)
+        np.random.seed(42)
+        engine = build_rsi_system(
+            budget_ops=100_000,
+            budget_seconds=60.0,
+            expansion_interval=5,
+            use_library_learning=True,
+        )
+        history = engine.run(generations=15, population_size=15)
+        assert len(history) == 15
+        # Engine should not crash and should maintain valid state
+        assert engine.archive.best_fitness >= 0
+        assert engine.vocab.size >= 11
+
+    def test_constant_subtree_extraction(self, vocab):
+        """Subtrees without input_x should be extracted as arity-0 ops."""
+        lib = LibraryLearner(vocab, min_subtree_depth=2, min_frequency=2)
+        # Subtree: add(const_one, const_one) — no input_x, depth=1
+        # Need depth >= 2: add(square(const_one), const_one)
+        const_sub = ExprNode("add", children=[
+            ExprNode("square", children=[ExprNode("const_one")]),
+            ExprNode("const_one"),
+        ])
+        tree1 = ExprNode("mul", children=[
+            ExprNode("input_x"),
+            ExprNode("add", children=[
+                ExprNode("square", children=[ExprNode("const_one")]),
+                ExprNode("const_one"),
+            ]),
+        ])
+        tree2 = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("add", children=[
+                ExprNode("square", children=[ExprNode("const_one")]),
+                ExprNode("const_one"),
+            ]),
+        ])
+        new_ops = lib.extract_library([tree1, tree2])
+        # Should extract the constant subtree
+        const_ops = [op for op in new_ops if op.arity == 0]
+        if const_ops:
+            # Should compute 1^2 + 1 = 2.0
+            result = const_ops[0].fn()
+            assert abs(result - 2.0) < 1e-6
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

@@ -218,9 +218,11 @@ class GrammarLayer:
 class MetaGrammarLayer:
     """Generates new grammar rules and vocabulary expansions at runtime."""
 
-    def __init__(self, vocab: VocabularyLayer, grammar: GrammarLayer):
+    def __init__(self, vocab: VocabularyLayer, grammar: GrammarLayer,
+                 library_learner: LibraryLearner = None):
         self.vocab = vocab
         self.grammar = grammar
+        self.library_learner = library_learner
         self._meta_rules: List[Callable] = []
         self._expansion_history: List[str] = []
         self._register_default_meta_rules()
@@ -264,7 +266,25 @@ class MetaGrammarLayer:
         self._expansion_history.append(f"new_rule:{scaled_mutate.__name__}")
         return scaled_mutate
 
-    def expand_design_space(self) -> str:
+    def expand_design_space(self, elite_trees: List[ExprNode] = None) -> str:
+        """
+        Expand the design space. If elite_trees are provided and a library
+        learner is configured, library learning is attempted with 50% probability
+        (the other meta-rules get the remaining 50%).
+        """
+        if (
+            elite_trees
+            and self.library_learner is not None
+            and random.random() < 0.5
+        ):
+            new_ops = self.library_learner.extract_library(elite_trees)
+            if new_ops:
+                names = [op.name for op in new_ops]
+                self._expansion_history.append(f"library_learning:{','.join(names)}")
+                action = f"Library learning: extracted {len(new_ops)} new primitives"
+                logger.info(f"Meta-grammar: {action}")
+                return action
+
         meta_rule = random.choice(self._meta_rules)
         result = meta_rule()
         action = f"Applied {meta_rule.__name__}: {'success' if result else 'no-op'}"
@@ -274,6 +294,161 @@ class MetaGrammarLayer:
     @property
     def expansion_count(self) -> int:
         return len(self._expansion_history)
+
+
+# ---------------------------------------------------------------------------
+# 3b. LIBRARY LEARNING (DreamCoder-inspired subtree compression)
+# ---------------------------------------------------------------------------
+
+class LibraryLearner:
+    """
+    Extracts frequently occurring subtrees from elite programs and promotes
+    them to new primitive operations in the vocabulary.
+
+    Inspired by DreamCoder's wake-sleep library learning / compression phase.
+    This genuinely expands the reachable design space because:
+    - A subtree of depth D becomes a single node (depth 0)
+    - Under a fixed max_depth constraint, programs that previously required
+      depth max_depth + D are now reachable at depth max_depth
+    - New primitives are semantically meaningful (discovered from successful
+      programs, not randomly composed)
+
+    The mechanism is structurally different from MetaGrammarLayer._meta_compose_new_op
+    which only randomly chains two existing unary ops. Library learning:
+    1. Considers subtrees of ANY arity and depth
+    2. Selects based on frequency in the elite population (not random)
+    3. Can discover multi-step computations involving binary ops, constants, etc.
+    """
+
+    def __init__(
+        self,
+        vocab: VocabularyLayer,
+        min_subtree_depth: int = 2,
+        min_frequency: int = 2,
+        max_library_additions: int = 3,
+    ):
+        self.vocab = vocab
+        self.min_subtree_depth = min_subtree_depth
+        self.min_frequency = min_frequency
+        self.max_library_additions = max_library_additions
+        self._learned_ops: List[str] = []
+
+    def _collect_subtrees(self, node: ExprNode) -> List[ExprNode]:
+        """Collect all subtrees from a tree (including the root)."""
+        result = [node]
+        for c in node.children:
+            result.extend(self._collect_subtrees(c))
+        return result
+
+    def _subtree_to_callable(self, subtree: ExprNode) -> Tuple[int, Callable]:
+        """
+        Convert a subtree into a callable function.
+
+        Returns (arity, fn) where arity is the number of distinct input_x
+        leaves found. For subtrees with input_x, arity=1 (single variable).
+        For subtrees without input_x (pure constants), arity=0.
+        """
+        has_input = self._has_input_x(subtree)
+        arity = 1 if has_input else 0
+
+        def _eval_subtree(*args):
+            x_val = args[0] if args else 0.0
+            return self._eval_subtree_node(subtree, x_val)
+
+        return arity, _eval_subtree
+
+    def _has_input_x(self, node: ExprNode) -> bool:
+        if node.op_name == "input_x":
+            return True
+        return any(self._has_input_x(c) for c in node.children)
+
+    def _eval_subtree_node(self, node: ExprNode, x: float) -> float:
+        """Evaluate a subtree at input x, using vocabulary ops."""
+        if node.op_name == "input_x":
+            return x
+        op = self.vocab.get(node.op_name)
+        if op is None:
+            return 0.0
+        if op.arity == 0:
+            try:
+                return float(op())
+            except Exception:
+                return 0.0
+        child_vals = [self._eval_subtree_node(c, x) for c in node.children]
+        if len(child_vals) < op.arity:
+            child_vals.extend([0.0] * (op.arity - len(child_vals)))
+        try:
+            result = op(*child_vals[:op.arity])
+            return float(result) if math.isfinite(float(result)) else 0.0
+        except Exception:
+            return 0.0
+
+    def extract_library(self, elite_trees: List[ExprNode]) -> List[PrimitiveOp]:
+        """
+        Scan elite trees for recurring subtrees and promote them to primitives.
+
+        Algorithm:
+        1. Collect all subtrees of depth >= min_subtree_depth from all elites
+        2. Group by structural fingerprint
+        3. Filter by frequency >= min_frequency
+        4. Sort by frequency * depth (prefer frequent, deep subtrees)
+        5. Create new PrimitiveOps for top candidates
+        """
+        # Step 1-2: Collect and group subtrees by fingerprint
+        fingerprint_counts: Dict[str, Tuple[int, ExprNode]] = {}
+        for tree in elite_trees:
+            seen_in_tree = set()  # avoid double-counting within one tree
+            for sub in self._collect_subtrees(tree):
+                if sub.depth() >= self.min_subtree_depth:
+                    fp = sub.fingerprint()
+                    if fp not in seen_in_tree:
+                        seen_in_tree.add(fp)
+                        if fp in fingerprint_counts:
+                            count, exemplar = fingerprint_counts[fp]
+                            fingerprint_counts[fp] = (count + 1, exemplar)
+                        else:
+                            fingerprint_counts[fp] = (1, copy.deepcopy(sub))
+
+        # Step 3: Filter by frequency
+        candidates = [
+            (count, exemplar)
+            for fp, (count, exemplar) in fingerprint_counts.items()
+            if count >= self.min_frequency
+        ]
+
+        # Step 4: Sort by frequency * depth (compressed value heuristic)
+        candidates.sort(key=lambda c: c[0] * c[1].depth(), reverse=True)
+
+        # Step 5: Create new PrimitiveOps
+        new_ops = []
+        for count, subtree in candidates[: self.max_library_additions]:
+            fp = subtree.fingerprint()
+            lib_name = f"lib_{fp}"
+            if self.vocab.get(lib_name) is not None:
+                continue  # Already extracted this subtree
+
+            arity, fn = self._subtree_to_callable(subtree)
+            cost = subtree.size() * 0.5  # Discounted cost (library ops are optimized)
+            new_op = PrimitiveOp(
+                name=lib_name,
+                arity=arity,
+                fn=fn,
+                cost=cost,
+                description=f"Library-learned: depth={subtree.depth()}, size={subtree.size()}, freq={count}",
+            )
+            self.vocab.register(new_op)
+            self._learned_ops.append(lib_name)
+            new_ops.append(new_op)
+            logger.info(
+                f"Library learning: extracted '{lib_name}' "
+                f"(arity={arity}, depth={subtree.depth()}, freq={count})"
+            )
+
+        return new_ops
+
+    @property
+    def num_learned(self) -> int:
+        return len(self._learned_ops)
 
 
 # ---------------------------------------------------------------------------
@@ -515,7 +690,11 @@ class SelfImprovementEngine:
 
         expansion_action = None
         if self.generation % self.expansion_interval == 0:
-            expansion_action = self.meta_grammar.expand_design_space()
+            # Gather elite trees for library learning
+            elite_trees = [e.tree for e in self.archive._grid.values()]
+            expansion_action = self.meta_grammar.expand_design_space(
+                elite_trees=elite_trees
+            )
 
         record = {
             "generation": self.generation,
@@ -630,6 +809,10 @@ def build_rsi_system(
     budget_seconds: float = 60.0,
     expansion_interval: int = 10,
     use_enhanced_archive: bool = False,
+    use_library_learning: bool = False,
+    library_min_depth: int = 2,
+    library_min_freq: int = 2,
+    library_max_additions: int = 3,
 ) -> SelfImprovementEngine:
     """
     Factory function to construct a complete RSI system.
@@ -643,13 +826,29 @@ def build_rsi_system(
         expansion_interval: generations between meta-grammar expansions
         use_enhanced_archive: if True, use EnhancedMAPElitesArchive with
                               novelty injection to mitigate coverage ceiling
+        use_library_learning: if True, enable DreamCoder-inspired library
+                              learning that extracts recurring subtrees from
+                              elites and promotes them to new primitives
+        library_min_depth: minimum subtree depth for library extraction
+        library_min_freq: minimum frequency for a subtree to be extracted
+        library_max_additions: maximum new primitives per library learning step
     """
     if fitness_fn is None:
         fitness_fn = symbolic_regression_fitness
 
     vocab = VocabularyLayer()
     grammar = GrammarLayer(vocab, max_depth=max_depth)
-    meta_grammar = MetaGrammarLayer(vocab, grammar)
+
+    lib_learner = None
+    if use_library_learning:
+        lib_learner = LibraryLearner(
+            vocab=vocab,
+            min_subtree_depth=library_min_depth,
+            min_frequency=library_min_freq,
+            max_library_additions=library_max_additions,
+        )
+
+    meta_grammar = MetaGrammarLayer(vocab, grammar, library_learner=lib_learner)
     budget = ResourceBudget(max_compute_ops=budget_ops, max_wall_seconds=budget_seconds)
     cost_loop = CostGroundingLoop(budget)
 
@@ -673,7 +872,7 @@ def main():
     """Run multi-domain RSI experiment across all fitness functions."""
     print("=" * 70)
     print("RSI-Exploration: Recursive Self-Improvement Architecture")
-    print("Multi-domain experiment with EnhancedMAPElitesArchive")
+    print("Multi-domain experiment with EnhancedMAPElitesArchive + Library Learning")
     print("=" * 70)
 
     results = {}
@@ -686,6 +885,7 @@ def main():
             budget_seconds=60.0,
             expansion_interval=10,
             use_enhanced_archive=True,
+            use_library_learning=True,
         )
         engine.run(generations=50, population_size=20)
         s = engine.archive.summary()
