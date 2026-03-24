@@ -14,6 +14,8 @@ from main import (
     ResourceBudget,
     CostGroundingLoop,
     MAPElitesArchive,
+    EnhancedMAPElitesArchive,
+    NoveltyScreener,
     EliteEntry,
     SelfImprovementEngine,
     build_rsi_system,
@@ -540,6 +542,181 @@ class TestLibraryLearner:
             # Should compute 1^2 + 1 = 2.0
             result = const_ops[0].fn()
             assert abs(result - 2.0) < 1e-6
+
+
+
+# ---- Novelty Screener Tests ----
+
+class TestNoveltyScreener:
+    """Tests for the fingerprint-based novelty rejection sampling."""
+
+    def test_identical_trees_have_similarity_one(self):
+        """Two identical trees should have Jaccard similarity of 1.0."""
+        screener = NoveltyScreener(similarity_threshold=0.85)
+        tree = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        sim = screener.structural_similarity(tree, tree)
+        assert sim == 1.0
+
+    def test_different_trees_have_lower_similarity(self):
+        """Structurally different trees should have similarity < 1.0."""
+        screener = NoveltyScreener(similarity_threshold=0.85)
+        tree_a = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        tree_b = ExprNode("mul", children=[
+            ExprNode("input_x"),
+            ExprNode("input_x"),
+        ])
+        sim = screener.structural_similarity(tree_a, tree_b)
+        assert sim < 1.0
+
+    def test_completely_different_trees(self):
+        """Trees with no shared subtrees should have low similarity."""
+        screener = NoveltyScreener(similarity_threshold=0.85)
+        tree_a = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        tree_b = ExprNode("neg", children=[
+            ExprNode("square", children=[ExprNode("const_zero")]),
+        ])
+        sim = screener.structural_similarity(tree_a, tree_b)
+        assert sim < 0.5
+
+    def test_should_accept_novel_candidate(self):
+        """A novel candidate should be accepted."""
+        screener = NoveltyScreener(similarity_threshold=0.85)
+        candidate = ExprNode("mul", children=[
+            ExprNode("input_x"),
+            ExprNode("input_x"),
+        ])
+        existing = [
+            EliteEntry(
+                tree=ExprNode("add", children=[
+                    ExprNode("const_one"),
+                    ExprNode("const_zero"),
+                ]),
+                raw_fitness=0.5, cost_score=0.9,
+                grounded_fitness=0.45, behavior=(0, 0), generation=1,
+            )
+        ]
+        assert screener.should_accept(candidate, existing)
+
+    def test_should_reject_too_similar_candidate(self):
+        """A candidate identical to an archive member should be rejected."""
+        screener = NoveltyScreener(similarity_threshold=0.5)
+        tree = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        existing = [
+            EliteEntry(
+                tree=ExprNode("add", children=[
+                    ExprNode("input_x"),
+                    ExprNode("const_one"),
+                ]),
+                raw_fitness=0.5, cost_score=0.9,
+                grounded_fitness=0.45, behavior=(0, 0), generation=1,
+            )
+        ]
+        assert not screener.should_accept(tree, existing)
+
+    def test_empty_archive_always_accepts(self):
+        """With no archive entries, all candidates should be accepted."""
+        screener = NoveltyScreener(similarity_threshold=0.5)
+        candidate = ExprNode("input_x")
+        assert screener.should_accept(candidate, [])
+
+    def test_rejection_rate_tracking(self):
+        """Rejection rate should be tracked correctly."""
+        screener = NoveltyScreener(similarity_threshold=0.0)
+        tree = ExprNode("input_x")
+        existing = [
+            EliteEntry(
+                tree=ExprNode("input_x"),
+                raw_fitness=0.5, cost_score=0.9,
+                grounded_fitness=0.45, behavior=(0, 0), generation=1,
+            )
+        ]
+        screener.should_accept(tree, existing)
+        assert screener._screenings == 1
+        assert screener._rejections == 1
+        assert screener.rejection_rate == 1.0
+
+    def test_summary(self):
+        """Summary should include screening stats."""
+        screener = NoveltyScreener()
+        s = screener.summary()
+        assert "screenings" in s
+        assert "rejections" in s
+        assert "rejection_rate" in s
+
+
+class TestEnhancedMAPElitesWithNoveltyScreening:
+    """Tests for the EnhancedMAPElitesArchive with novelty rejection sampling."""
+
+    def test_enhanced_archive_has_screener(self):
+        """Enhanced archive should initialize with a NoveltyScreener."""
+        archive = EnhancedMAPElitesArchive(dims=[6, 10])
+        assert hasattr(archive, "novelty_screener")
+        assert isinstance(archive.novelty_screener, NoveltyScreener)
+
+    def test_custom_similarity_threshold(self):
+        """Custom similarity threshold should be passed to screener."""
+        archive = EnhancedMAPElitesArchive(
+            dims=[6, 10], similarity_threshold=0.5
+        )
+        assert archive.novelty_screener.similarity_threshold == 0.5
+
+    def test_summary_includes_screening_stats(self):
+        """Archive summary should include novelty screening info."""
+        archive = EnhancedMAPElitesArchive(dims=[6, 10])
+        s = archive.summary()
+        assert "novelty_screening" in s
+        assert "screenings" in s["novelty_screening"]
+
+    def test_similar_candidate_rejected_from_occupied_cell(self):
+        """A very similar candidate in an occupied cell should be rejected."""
+        archive = EnhancedMAPElitesArchive(
+            dims=[6, 10], similarity_threshold=0.3, novelty_rate=0.0
+        )
+        tree1 = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        entry1 = EliteEntry(
+            tree=tree1, raw_fitness=0.5, cost_score=0.9,
+            grounded_fitness=0.45, behavior=(0, 0), generation=1,
+        )
+        archive.try_insert(entry1)
+
+        # Same tree, same cell, lower fitness — should be rejected by both
+        # elitism AND novelty screening
+        entry2 = EliteEntry(
+            tree=tree1, raw_fitness=0.3, cost_score=0.9,
+            grounded_fitness=0.27, behavior=(0, 0), generation=2,
+        )
+        result = archive.try_insert(entry2)
+        assert result is False
+
+    def test_engine_with_novelty_screening(self):
+        """Full RSI engine should work with novelty rejection sampling."""
+        random.seed(42)
+        np.random.seed(42)
+        engine = build_rsi_system(
+            budget_ops=100_000,
+            budget_seconds=60.0,
+            expansion_interval=5,
+            use_enhanced_archive=True,
+            similarity_threshold=0.85,
+        )
+        history = engine.run(generations=10, population_size=10)
+        assert len(history) == 10
+        assert engine.archive.best_fitness >= 0
 
 
 if __name__ == "__main__":
