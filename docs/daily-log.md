@@ -37,7 +37,7 @@ Updated `build_rsi_system()` factory with `use_library_learning`, `library_min_d
 ### Baseline
 - 49/49 tests pass
 - CAGE snapshot: no changes since last session (library learning integrated on main)
-- Architectural ceiling: ExprNode trees are NOT Turing-complete — specifically cannot express: self-reference (no tree can reference its own encoding), adaptive grammar rules (rule set is static during evaluation), simultaneous induction-recursion (no type/interpretation co-definition)
+- Architectural ceiling: ExprNode trees are NOT Turing-complete — specifically cannot express: self-reference, adaptive grammar rules, simultaneous induction-recursion
 - Today's domain: A (Mathematics & Formal Foundations)
 - Previous sessions completed: none (this is Session 1)
 
@@ -51,31 +51,19 @@ Updated `build_rsi_system()` factory with `use_library_learning`, `library_min_d
 - Full formal extractions completed: 7
 - STRUCTURAL_EXPANSION verdicts: 6 (A.1 Universe Polymorphism/IR, A.2 Kan Extensions, A.3 Adaptive Grammars, A.4 VW Two-Level Grammars, A.5 Univalence, A.7 Diagonal Lemma)
 - COMBINATORIAL_RECOMBINATION verdicts: 1 (A.6 Priority Arguments)
-- NO_STRUCTURE_FOUND: 0
 - Remaining incomplete: 0
 
 ### Key findings from Domain A
 
 **Strongest cage-breaking candidates (Layer 3 / FORMAT_CHANGE):**
 
-1. **A.3 Adaptive Grammars (Shutt)** — Rule set becomes a dynamic semantic object modified during evaluation. Direct transplant: `GrammarLayer.active_rules(attributes)` where attributes are computed from archive state. Makes rule activation conditional on population characteristics rather than random. Layer 3.
-
-2. **A.4 Van Wijngaarden Two-Level Grammars** — Metarules + hyperrules generate infinite concrete grammar from finite specification via consistent substitution. Transplant: parameterize grammar rules with metanotions (ARITY, TYPE, etc.) and systematically instantiate. Replaces random rule generation with parametric expansion. Layer 3 → Layer 2.
-
-3. **A.7 Diagonal Lemma (Self-Reference)** — Trees that can reference their own encoding. Transplant: add `self_encode` primitive operator + tree-fingerprint context variable during evaluation. Enables reflective trees that inspect/modify their own structure. FORMAT_CHANGE: adds reflexive capacity absent from current format. F_theo expansion: self-referential trees can express fixed-point computations that non-self-referential trees cannot.
-
-4. **A.1 Induction-Recursion** — Simultaneous definition of codes + interpretation. Transplant: vocabulary entries defined simultaneously with their semantics (currently, `_meta_compose_new_op` creates primitives without interpretation constraints). Layer 3 + FORMAT_CHANGE.
-
-**Within-format (not cage-breaking):**
-
-5. **A.6 Priority Arguments** — Conflict resolution for multi-objective expansion. Useful for implementation (principled MetaGrammarLayer expansion ordering) but does not change F_theo. COMBINATORIAL_RECOMBINATION.
-
-**High value but computability concerns:**
-
-6. **A.5 Univalence** — Quotient ExprNode space by structural equivalence. Valuable for search efficiency (collapse equivalent representations) but univalence itself is not computable as axiom. Cubical interpretation partially resolves this. Transplant: `ExprNode.canonical_form()` for archive deduplication.
+1. **A.3 Adaptive Grammars (Shutt)** — Rule set becomes dynamic semantic object modified during evaluation. Layer 3.
+2. **A.4 Van Wijngaarden Two-Level Grammars** — Metarules + hyperrules generate infinite concrete grammar from finite specification. Layer 3 → Layer 2.
+3. **A.7 Diagonal Lemma (Self-Reference)** — Trees that can reference their own encoding. FORMAT_CHANGE.
+4. **A.1 Induction-Recursion** — Simultaneous definition of codes + interpretation. Layer 3 + FORMAT_CHANGE.
 
 ### Session assessment
-COMPLETE — All 7 sub-topics have full formal structure extractions with old/new format, transition operation, expressibility analysis, computability assessment, CAGE diagnosis, and transplant sketch. Domain A report written to docs/domains/domain-A-mathematics.md.
+COMPLETE — All 7 sub-topics. Domain A report written to docs/domains/domain-A-mathematics.md.
 
 ---
 
@@ -84,13 +72,10 @@ COMPLETE — All 7 sub-topics have full formal structure extractions with old/ne
 ### Baseline
 - 49/49 tests pass
 - CAGE snapshot: no changes since Session 1 (same day)
-- Architectural ceiling: unchanged from Session 1
 - Today's domain: B (Physics, Cosmology & Fundamental Theory)
-- Previous sessions completed: Session 1 (Domain A)
 
 ### Monitoring
-- arxiv: 19 scanned, 8 relevant, 8 deeper_read (incremental)
-- GitHub: 0 incremental (reused Session 1 scan)
+- arxiv: 19 scanned, 8 relevant (incremental)
 - Cumulative: arxiv 57, GitHub 25
 
 ### Domain investigation
@@ -98,29 +83,18 @@ COMPLETE — All 7 sub-topics have full formal structure extractions with old/ne
 - Full formal extractions completed: 9
 - STRUCTURAL_EXPANSION verdicts: 4 (B.1 Higgs, B.3 Wilson RG, B.7 M-theory, B.8 Electroweak)
 - COMBINATORIAL_RECOMBINATION verdicts: 5 (B.2 Landau, B.4 T-duality, B.5 S-duality, B.6 AdS/CFT, B.9 Nucleosynthesis)
-- NO_STRUCTURE_FOUND: 0
 - Remaining incomplete: 0
 
 ### Key findings from Domain B
 
-**Critical pattern discovered: dualities are isomorphisms, not expansions.** T-duality, S-duality, and AdS/CFT all preserve F_theo. They provide computational access to different regimes but do not expand expressibility. This is an important diagnostic: any proposed "expansion" that is actually a duality/isomorphism should be immediately reclassified as COMBINATORIAL_RECOMBINATION.
+**Critical pattern: dualities are isomorphisms, not expansions.** T-duality, S-duality, AdS/CFT all preserve F_theo.
 
-**Genuine expansions in physics come from two mechanisms:**
-
-1. **Symmetry breaking** (B.1 Higgs, B.8 Electroweak) — vacuum selection creates new mass eigenstates (linear combinations) inexpressible in the symmetric representation. FORMAT_CHANGE. Transplant: "vacuum selection" on ExprNode trees = fixing a structural template and expanding as perturbations around it.
-
-2. **Coarse-graining / RG** (B.3 Wilson) — integrating out fine structure generates new effective operators absent from original Lagrangian. Layer 1+2 expansion. **KEY INSIGHT: Wilson RG IS structurally identical to LibraryLearner.** The RSI system already implements the core RG operation. The connection is not metaphorical — it is formal.
-
-3. **Unification** (B.7 M-theory) — embedding multiple formats into a higher-dimensional framework reveals structure invisible in any single component. Transplant: define a meta-format subsuming ExprNode trees + stack-based + graph-based programs, evolve in meta-format. Directly addresses standing rule #12 (architectural question).
-
-**Within-format but useful for implementation:**
-
-4. **Threshold-gated expansion** (B.9 Nucleosynthesis) — staged unlocking of progressively disruptive operations based on "computational temperature." Transplant: define T_comp thresholds for MetaGrammarLayer operations.
-
-5. **Landscape bifurcation detection** (B.2 Landau) — monitor second derivative of fitness vs. control parameter to detect phase transitions in the evolutionary search. Trigger expansion at bifurcation points.
+1. **Symmetry breaking** (B.1, B.8) — vacuum selection creates new mass eigenstates. FORMAT_CHANGE.
+2. **Wilson RG** (B.3) — **KEY INSIGHT: Wilson RG IS structurally identical to LibraryLearner.** Formal, not metaphorical.
+3. **M-theory unification** (B.7) — meta-format subsuming multiple representations.
 
 ### Session assessment
-COMPLETE — All 9 sub-topics have full formal structure extractions. Domain B report written to docs/domains/domain-B-physics.md. Key insight: Wilson RG = LibraryLearner (structural, not metaphorical). Pattern: dualities preserve F_theo; symmetry breaking and coarse-graining expand it.
+COMPLETE — All 9 sub-topics. Domain B report written to docs/domains/domain-B-physics.md.
 
 ---
 
@@ -128,43 +102,25 @@ COMPLETE — All 9 sub-topics have full formal structure extractions. Domain B r
 
 ### Baseline
 - 49/49 tests pass
-- CAGE snapshot: no changes since Session 2 (same day)
-- Architectural ceiling: unchanged from Session 1
 - Today's domain: C (Ancient Texts, Manuscripts & Historical Linguistics)
-- Previous sessions completed: Session 1 (Domain A), Session 2 (Domain B)
-
-### Monitoring
-- arxiv: 0 incremental (3rd session same day, reused prior scans)
-- GitHub: 0 incremental
-- Cumulative: arxiv 57, GitHub 25
 
 ### Domain investigation
 - Sub-topics investigated: 8
 - Full formal extractions completed: 8
 - STRUCTURAL_EXPANSION verdicts: 5 (C.1b Paribhāṣā, C.1c Kāraka, C.3 Aramaic polysemy, C.4 Cuneiform evolution, C.5 DSS variants)
-- Mixed (STRUCTURAL + COMBINATORIAL): 1 (C.6 Script evolution)
 - COMBINATORIAL_RECOMBINATION verdicts: 2 (C.1a Pratyāhāra, C.2 Hebrew binyanim)
-- NO_STRUCTURE_FOUND: 0
-- Remaining incomplete: 0
+- Mixed: 1 (C.6 Script evolution)
 
 ### Key findings from Domain C
 
-**Dominant pattern: context-dependent evaluation is the primary expansion mechanism.** Three independent sub-topics (C.1c kāraka, C.3 Aramaic polysemy, C.4 cuneiform polyvalence) converge on the same structural expansion: making evaluation context-dependent. Current ExprNode evaluation is context-free. Adding context threading + polymorphic ops + determinative type annotations is a single coherent FORMAT_CHANGE.
+**Dominant pattern: context-dependent evaluation is the primary expansion mechanism.** Three independent sub-topics converge on making evaluation context-dependent.
 
-**Strongest cage-breaking candidates:**
-
-1. **Context-dependent evaluation** (C.3 + C.4 + C.1c) — Polymorphic PrimitiveOps with function sets, dispatchers, and context threading through evaluation. FORMAT_CHANGE. Extends F_theo: same tree structure can compute different functions based on evaluation context.
-
-2. **Resegmentation / latent structure discovery** (C.5 L2) — Re-parsing existing trees under alternative grammars reveals structure invisible to current parse. Zero-cost expansion (no new primitives needed).
-
-3. **Paribhāṣā conflict resolution** (C.1b) — Replace random rule selection in MetaGrammarLayer with operand-specificity-based deterministic resolution. Makes grammar expansion compositional and predictable.
-
-4. **Bidirectional abstraction** (C.6) — Library learning only coarse-grains (subtrees → primitives). The alphabetic decomposition principle adds fine-graining (primitives → sub-atomic components). Bidirectional movement across abstraction hierarchy.
-
-**Cross-domain connection:** C.6's fine-graining is the exact inverse of B.3 Wilson RG / LibraryLearner. The RSI system currently only moves in the RG direction; adding the reverse (decomposition) would enable full abstraction navigation.
+1. **Context-dependent evaluation** (C.3 + C.4 + C.1c) — Polymorphic PrimitiveOps with context threading. FORMAT_CHANGE.
+2. **Paribhāṣā conflict resolution** (C.1b) — Replace random rule selection with specificity-based deterministic resolution.
+3. **Bidirectional abstraction** (C.6) — Fine-graining = inverse of B.3 Wilson RG / LibraryLearner.
 
 ### Session assessment
-COMPLETE — All 8 sub-topics have full formal structure extractions. Domain C report written to docs/domains/domain-C-linguistics.md. Key insight: context-dependent evaluation is the dominant expansion mechanism (convergent across 3 independent sub-topics). Cross-domain: fine-graining (C.6) is inverse of coarse-graining (B.3/LibraryLearner).
+COMPLETE — All 8 sub-topics. Domain C report written to docs/domains/domain-C-linguistics.md.
 
 ---
 
@@ -172,40 +128,26 @@ COMPLETE — All 8 sub-topics have full formal structure extractions. Domain C r
 
 ### Baseline
 - 49/49 tests pass
-- CAGE snapshot: no changes since Session 3 (same day)
-- Architectural ceiling: unchanged from Session 1
 - Today's domain: D (Computer Science & Computation Theory)
-- Previous sessions completed: Sessions 1-3 (Domains A, B, C)
-
-### Monitoring
-- arxiv: 0 incremental (4th session same day)
-- GitHub: 0 incremental
-- Cumulative: arxiv 57, GitHub 25
 
 ### Domain investigation
 - Sub-topics investigated: 8
 - Full formal extractions completed: 8
 - STRUCTURAL_EXPANSION verdicts: 5 (D.1 Quines/Kleene, D.5 Type Systems, D.6 Automata/TAG, D.7 Gödel Machines, D.8 Continuations/Effects)
 - COMBINATORIAL_RECOMBINATION verdicts: 3 (D.2 GGGP/GE, D.3 DreamCoder, D.4 Reflection)
-- NO_STRUCTURE_FOUND: 0
-- Remaining incomplete: 0
 
 ### Key findings from Domain D
 
-**Self-reference is the master cage-breaking mechanism.** D.1 (quines), D.4 (reflection), and D.7 (Gödel Machines) form a progression addressing the three architectural ceilings.
+**Self-reference is the master cage-breaking mechanism.** D.1→D.4→D.7 progression.
 
-**Strongest cage-breaking candidates:**
-
-1. **Gödel Machine / self-modification** (D.7) — system rewrites its own evaluation mechanism; ultimate cage-breaking.
-2. **Quines / self-reference** (D.1) — trees referencing own encoding. Same mechanism as A.7 (Diagonal Lemma).
-3. **Continuations / algebraic effects** (D.8) — adds entire control flow dimension absent from current system.
-4. **Indexed grammars / TAG adjunction** (D.6) — moves ExprNode from regular tree grammar to mildly context-sensitive.
-5. **Dependent / refinement types** (D.5) — type-indexed composition rules + verification.
-
-**Cross-domain connections:** D.1≡A.7, D.4≡C.3/C.4, D.7⊃B.3.
+1. **Gödel Machine** (D.7) — system rewrites its own evaluation mechanism; ultimate cage-breaking.
+2. **Quines / self-reference** (D.1) — trees referencing own encoding. ≡ A.7.
+3. **Continuations / algebraic effects** (D.8) — adds entire control flow dimension.
+4. **TAG adjunction** (D.6) — moves ExprNode to mildly context-sensitive.
+5. **Dependent types** (D.5) — type-indexed composition rules.
 
 ### Session assessment
-COMPLETE — All 8 sub-topics have full formal structure extractions. Domain D report written to docs/domains/domain-D-cs.md. Key insight: self-reference is the master cage-breaking mechanism (D.1→D.4→D.7 progression). LibraryLearner already implements core program synthesis mechanism (D.2, D.3 = COMBINATORIAL_RECOMBINATION).
+COMPLETE — All 8 sub-topics. Domain D report written to docs/domains/domain-D-cs.md.
 
 ---
 
@@ -213,52 +155,19 @@ COMPLETE — All 8 sub-topics have full formal structure extractions. Domain D r
 
 ### Baseline
 - 49/49 tests pass
-- CAGE snapshot: no changes since Session 4 (same day)
-- Architectural ceiling: unchanged from Session 1
 - Today's domain: E (Music, Acoustics & Compositional Theory)
-- Previous sessions completed: Sessions 1-4 (Domains A, B, C, D)
-
-### Monitoring
-- arxiv: 0 incremental (5th session same day)
-- GitHub: 0 incremental
-- Cumulative: arxiv 57, GitHub 25
 
 ### Domain investigation
-- Sub-topics investigated: 6
-- Full formal extractions completed: 6
-- STRUCTURAL_EXPANSION verdicts: 4 (E.1 Schenkerian Analysis, E.3 Spectral Music, E.4 GTTM, E.6 Microtonality/JI)
-- COMBINATORIAL_RECOMBINATION verdicts: 2 (E.2 Serialism, E.5 L-Systems)
-- NO_STRUCTURE_FOUND: 0
-- Remaining incomplete: 0
+- Sub-topics: 6 investigated, 6 complete
+- STRUCTURAL_EXPANSION: 4 (E.1 Schenkerian, E.3 Spectral, E.4 GTTM, E.6 Microtonality)
+- COMBINATORIAL_RECOMBINATION: 2 (E.2 Serialism, E.5 L-Systems)
 
 ### Key findings from Domain E
 
-**Cross-domain convergence dominates this domain.** Four of five cross-domain patterns connect to previously identified mechanisms.
-
-**Strongest cage-breaking candidates:**
-
-1. **Spectral / continuous primitives** (E.3) — FORMAT_CHANGE from discrete scalar to continuous vector. Same structural expansion as B.1/B.8 (physics). Transplant: extend PrimitiveOp to output vectors (SpectralOp), add spectral composition rules. Layer 1 + FORMAT_CHANGE.
-
-2. **Preference-based rule selection** (E.4 GTTM) — Replace random rule selection with preference-ranked selection. Converges with C.1b (paribhāṣā) — three domains now independently identify this mechanism. Transplant: multi-component hierarchy with cross-constraints. Layer 2.
-
-3. **Structure-preserving composition** (E.1 Schenkerian) — Multi-level prolongation preserving structural tones of higher levels. New composition mode absent from ExprNode. Connects to D.6 (TAG adjunction). Layer 2 + FORMAT_CHANGE.
-
-4. **Lattice-structured vocabulary** (E.6 JI/Microtonality) — Infinite lattice with geometric consonance constraints. Genuinely expands vocabulary with structured relationships. Layer 1 + FORMAT_CHANGE.
-
-**Within-format (not cage-breaking):**
-
-5. **Group symmetry operations** (E.2 Serialism) — Bijections on same set. Confirms B.4-B.6 pattern: symmetry-preserving transformations = COMBINATORIAL_RECOMBINATION.
-
-6. **Parallel rewriting** (E.5 L-systems) — Exponential compactness but same F_theo. Useful as MetaGrammarLayer strategy.
-
-**Key cross-domain patterns:**
-- E.3 = B.1/B.8 (continuous primitives are recurring FORMAT_CHANGE)
-- E.4 = C.1b (preference rules replace random selection — 3 independent domains)
-- E.2 confirms B.4-B.6 (group symmetry = recombination)
-- E.1 connects to D.6 (structure-preserving hierarchical composition)
+**Cross-domain convergence dominates.** E.3=B.1/B.8 (continuous primitives), E.4=C.1b (preference rules), E.2=B.4-B.6 (symmetry=recombination).
 
 ### Session assessment
-COMPLETE — All 6 sub-topics have full formal structure extractions. Domain E report written to docs/domains/domain-E-music.md. Key insight: cross-domain convergence is the dominant finding — continuous primitives (E.3=B.1/B.8), preference rules (E.4=C.1b), group symmetry as recombination (E.2=B.4-B.6). No fundamentally new cage-breaking mechanism discovered; rather, Domain E reinforces and validates patterns from Domains A-D.
+COMPLETE — All 6 sub-topics. Domain E report written to docs/domains/domain-E-music.md.
 
 ---
 
@@ -266,49 +175,23 @@ COMPLETE — All 6 sub-topics have full formal structure extractions. Domain E r
 
 ### Baseline
 - 49/49 tests pass
-- CAGE snapshot: no changes since Session 5 (same day)
-- Architectural ceiling: unchanged from Session 1
 - Today's domain: F (Architecture, Engineering & Design)
-- Previous sessions completed: Sessions 1-5 (Domains A, B, C, D, E)
-
-### Monitoring
-- arxiv: 0 incremental (6th session same day)
-- GitHub: 0 incremental
-- Cumulative: arxiv 57, GitHub 25
 
 ### Domain investigation
-- Sub-topics investigated: 7
-- Full formal extractions completed: 7
-- STRUCTURAL_EXPANSION verdicts: 2 (F.5 Topology Optimization, F.6 Origami Mathematics)
-- COMBINATORIAL_RECOMBINATION verdicts: 4 (F.1 Shape Grammars, F.2 Parametric Design, F.3 Tensegrity, F.7 Co-evolutionary Design)
+- Sub-topics: 7 investigated, 7 complete
+- STRUCTURAL_EXPANSION: 2 (F.5 Topology Optimization, F.6 Origami Mathematics)
+- COMBINATORIAL_RECOMBINATION: 4 (F.1 Shape Grammars, F.2 Parametric Design, F.3 Tensegrity, F.7 Co-evolutionary Design)
 - NO_STRUCTURE_FOUND: 1 (F.4 Pattern Language)
-- Remaining incomplete: 0
 
 ### Key findings from Domain F
 
-**Architecture/design domains are primarily about search efficiency, not expressibility.** Only 2 of 7 sub-topics yield STRUCTURAL_EXPANSION — the lowest ratio of any domain so far. Root cause: mathematics and music concern *what is computable*; architecture concerns *how to design well*. These are orthogonal.
+**Architecture/design primarily about search efficiency, not expressibility.** Only 2/7 STRUCTURAL_EXPANSION.
 
-**Strongest cage-breaking candidates:**
-
-1. **Topology optimization / continuous density fields** (F.5) — FORMAT_CHANGE from discrete binary members to continuous density field ρ: Ω → [0,1]. Same recurring discrete→continuous expansion as E.3 (spectral music), B.1/B.8 (physics). Now 4 independent domains identify this mechanism. Layer 1+2+FORMAT.
-
-2. **Origami algebraic tower extension** (F.6) — Huzita-Hatori fold axioms expand constructible objects from quadratic field Q(√·) to cubic field Q(∛·). Galois-theoretically proven: origami group properly contains compass-straightedge group. New pattern not previously seen — domain-specific but formally rigorous. Layer 1+2+FORMAT.
-
-**Within-format (not cage-breaking):**
-
-3. **Problem inversion** (F.1, F.2, F.3) — All three involve inverting problem direction (forward↔backward, specification↔derivation). None expand F_theo. Confirms Domain B pattern: inversions/dualities = COMBINATORIAL_RECOMBINATION.
-
-4. **Co-evolution** (F.7) — Better search dynamics ≠ expanded expressibility. Confirms E.5, B.4-B.6 pattern.
-
-5. **Pattern Language** (F.4) — Design philosophy, deliberately resists formalization. NO_STRUCTURE_FOUND.
-
-**Key cross-domain patterns:**
-- F.5 = E.3 = B.1/B.8 (continuous primitives, now in 4 domains)
-- F.1/F.2/F.3 confirm B.4-B.6 (inversions/dualities = recombination)
-- F.7 confirms E.5 (search improvement ≠ expressibility expansion)
+1. **Topology optimization** (F.5) — discrete→continuous FORMAT_CHANGE (=E.3=B.1/B.8, now 4 domains).
+2. **Origami algebraic tower** (F.6) — quadratic→cubic field extension. New Galois-theoretic expansion.
 
 ### Session assessment
-COMPLETE — All 7 sub-topics have full formal structure extractions. Domain F report written to docs/domains/domain-F-architecture.md. Key insight: architecture/design domains are primarily about search efficiency, not expressibility. Only 2/7 STRUCTURAL_EXPANSION. Continuous primitives FORMAT_CHANGE now confirmed across 4 independent domains. New finding: origami algebraic tower extension (F.6).
+COMPLETE — All 7 sub-topics. Domain F report written to docs/domains/domain-F-architecture.md.
 
 ---
 
@@ -316,33 +199,60 @@ COMPLETE — All 7 sub-topics have full formal structure extractions. Domain F r
 
 ### Baseline
 - 49/49 tests pass
-- CAGE snapshot: no changes since Session 6 (same day)
-- Architectural ceiling: unchanged from Session 1
 - Today's domain: G (Philosophy of Mathematics & Formal Epistemology)
-- Previous sessions completed: Sessions 1-6 (Domains A-F)
+
+### Domain investigation
+- Sub-topics: 7 investigated, 7 complete
+- STRUCTURAL_EXPANSION: 2 (G.1 Intuitionism/Constructive Math, G.6 Topos Theory)
+- COMBINATORIAL_RECOMBINATION: 3 (G.2 Lakatos, G.3 Structuralism, G.5 Forcing)
+- NO_STRUCTURE_FOUND: 2 (G.4 Reverse Mathematics, G.7 Incompleteness)
+
+### Key findings from Domain G
+
+**Fewer expansions but deeper foundations.** Two genuine STRUCTURAL_EXPANSION providing mathematical grounding for other domains.
+
+1. **Constructive proofs-as-programs** (G.1) — Curry-Howard: expansion via restriction. New pattern.
+2. **Topos-internal evaluation** (G.6) — Mathematical foundation for C.3/C.4 context-dependent eval.
+
+### Session assessment
+COMPLETE — All 7 sub-topics. Domain G report written to docs/domains/domain-G-philosophy.md.
+
+---
+
+## 2026-03-25 — Session 8: Domain H (Representation Theory & Algebraic Structures)
+
+### Baseline
+- 49/49 tests pass
+- CAGE snapshot: no changes since Session 7 (same day)
+- Architectural ceiling: unchanged from Session 1
+- Today's domain: H (Representation Theory & Algebraic Structures)
+- Previous sessions completed: Sessions 1-7 (Domains A-G)
 
 ### Monitoring
-- arxiv: 0 incremental (7th session same day)
+- arxiv: 0 incremental (8th session same day)
 - GitHub: 0 incremental
 - Cumulative: arxiv 57, GitHub 25
 
 ### Domain investigation
-- Sub-topics investigated: 7
-- Full formal extractions completed: 7
-- STRUCTURAL_EXPANSION verdicts: 2 (G.1 Intuitionism/Constructive Math, G.6 Topos Theory)
-- COMBINATORIAL_RECOMBINATION verdicts: 3 (G.2 Lakatos, G.3 Structuralism, G.5 Forcing)
-- NO_STRUCTURE_FOUND: 2 (G.4 Reverse Mathematics, G.7 Incompleteness)
+- Sub-topics investigated: 8
+- Full formal extractions completed: 8
+- STRUCTURAL_EXPANSION verdicts: 5 (H.2 Quiver Representations, H.3 Crystal Bases, H.4 Geometric Rep Theory, H.5 Categorification, H.8 Operads)
+- COMBINATORIAL_RECOMBINATION verdicts: 3 (H.1 Young Tableaux, H.6 Fusion Categories, H.7 Langlands Program)
+- NO_STRUCTURE_FOUND: 0
 - Remaining incomplete: 0
 
-### Key findings from Domain G
+### Key findings from Domain H
 
-**Philosophy of mathematics yields fewer expansions but deeper foundations.** Two genuine STRUCTURAL_EXPANSION candidates providing mathematical grounding for patterns from other domains.
+**Representation theory is the richest domain for structural expansion.** 5/8 sub-topics yield STRUCTURAL_EXPANSION — the highest ratio of any domain. Root cause: representation theory studies *how structures represent other structures*, which is exactly what the RSI system needs for cage-breaking.
 
 **Strongest candidates:**
-1. **Constructive proofs-as-programs** (G.1) — Curry-Howard: proofs ARE programs. Expansion via restriction. New pattern. Connects to D.5.
-2. **Topos-internal context-dependent evaluation** (G.6) — Mathematical foundation for C.3/C.4 pattern. 4 independent sources now.
+1. **Operads as meta-grammar** (H.8) — Grammar for grammars. Directly formalizes MetaGrammarLayer. Koszul duality auto-generates dual rule systems.
+2. **Categorification** (H.5) — Systematic format lifting (int→vector space, polynomial→chain complex). Functorial information gain.
+3. **Crystal bases** (H.3) — Expansion via dimensional reduction (q→0). Paradoxical expansion via restriction (matches G.1).
+4. **Geometric rep theory** (H.4) — Sheaf-theoretic methods reveal algebraically invisible structure.
+5. **Quiver root classification** (H.2) — Dynkin diagrams organize representation types.
 
-**Cross-domain:** G.1=NEW (expansion via restriction), G.6=C.3/C.4 (context-dependent eval), G.2=F.7 (search≠expansion), G.3=A.5 (structural quotient).
+**Cross-domain:** H.8=A.3/A.4 (meta-grammar), H.5=B/E/F (format lifting), H.3=G.1 (expansion via restriction), H.4=G.6 (geometric methods), H.7=B.4-B.6 (duality=recombination).
 
 ### Session assessment
-COMPLETE — All 7 sub-topics. Domain G report written to docs/domains/domain-G-philosophy.md.
+COMPLETE — All 8 sub-topics. Domain H report written to docs/domains/domain-H-representation.md.
