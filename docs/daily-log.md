@@ -165,3 +165,44 @@ COMPLETE — All 9 sub-topics have full formal structure extractions. Domain B r
 
 ### Session assessment
 COMPLETE — All 8 sub-topics have full formal structure extractions. Domain C report written to docs/domains/domain-C-linguistics.md. Key insight: context-dependent evaluation is the dominant expansion mechanism (convergent across 3 independent sub-topics). Cross-domain: fine-graining (C.6) is inverse of coarse-graining (B.3/LibraryLearner).
+
+---
+
+## 2026-03-25 — Session 4: Domain D (Computer Science & Computation Theory)
+
+### Baseline
+- 49/49 tests pass
+- CAGE snapshot: no changes since Session 3 (same day)
+- Architectural ceiling: unchanged from Session 1
+- Today's domain: D (Computer Science & Computation Theory)
+- Previous sessions completed: Sessions 1-3 (Domains A, B, C)
+
+### Monitoring
+- arxiv: 0 incremental (4th session same day)
+- GitHub: 0 incremental
+- Cumulative: arxiv 57, GitHub 25
+
+### Domain investigation
+- Sub-topics investigated: 8
+- Full formal extractions completed: 8
+- STRUCTURAL_EXPANSION verdicts: 5 (D.1 Quines/Kleene, D.5 Type Systems, D.6 Automata/TAG, D.7 Gödel Machines, D.8 Continuations/Effects)
+- COMBINATORIAL_RECOMBINATION verdicts: 3 (D.2 GGGP/GE, D.3 DreamCoder, D.4 Reflection)
+- NO_STRUCTURE_FOUND: 0
+- Remaining incomplete: 0
+
+### Key findings from Domain D
+
+**Self-reference is the master cage-breaking mechanism.** D.1 (quines), D.4 (reflection), and D.7 (Gödel Machines) form a progression addressing the three architectural ceilings.
+
+**Strongest cage-breaking candidates:**
+
+1. **Gödel Machine / self-modification** (D.7) — system rewrites its own evaluation mechanism; ultimate cage-breaking.
+2. **Quines / self-reference** (D.1) — trees referencing own encoding. Same mechanism as A.7 (Diagonal Lemma).
+3. **Continuations / algebraic effects** (D.8) — adds entire control flow dimension absent from current system.
+4. **Indexed grammars / TAG adjunction** (D.6) — moves ExprNode from regular tree grammar to mildly context-sensitive.
+5. **Dependent / refinement types** (D.5) — type-indexed composition rules + verification.
+
+**Cross-domain connections:** D.1≡A.7, D.4≡C.3/C.4, D.7⊃B.3.
+
+### Session assessment
+COMPLETE — All 8 sub-topics have full formal structure extractions. Domain D report written to docs/domains/domain-D-cs.md. Key insight: self-reference is the master cage-breaking mechanism (D.1→D.4→D.7 progression). LibraryLearner already implements core program synthesis mechanism (D.2, D.3 = COMBINATORIAL_RECOMBINATION).
