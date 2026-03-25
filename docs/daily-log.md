@@ -121,3 +121,47 @@ COMPLETE — All 7 sub-topics have full formal structure extractions with old/ne
 
 ### Session assessment
 COMPLETE — All 9 sub-topics have full formal structure extractions. Domain B report written to docs/domains/domain-B-physics.md. Key insight: Wilson RG = LibraryLearner (structural, not metaphorical). Pattern: dualities preserve F_theo; symmetry breaking and coarse-graining expand it.
+
+---
+
+## 2026-03-25 — Session 3: Domain C (Ancient Texts, Manuscripts & Historical Linguistics)
+
+### Baseline
+- 49/49 tests pass
+- CAGE snapshot: no changes since Session 2 (same day)
+- Architectural ceiling: unchanged from Session 1
+- Today's domain: C (Ancient Texts, Manuscripts & Historical Linguistics)
+- Previous sessions completed: Session 1 (Domain A), Session 2 (Domain B)
+
+### Monitoring
+- arxiv: 0 incremental (3rd session same day, reused prior scans)
+- GitHub: 0 incremental
+- Cumulative: arxiv 57, GitHub 25
+
+### Domain investigation
+- Sub-topics investigated: 8
+- Full formal extractions completed: 8
+- STRUCTURAL_EXPANSION verdicts: 5 (C.1b Paribhāṣā, C.1c Kāraka, C.3 Aramaic polysemy, C.4 Cuneiform evolution, C.5 DSS variants)
+- Mixed (STRUCTURAL + COMBINATORIAL): 1 (C.6 Script evolution)
+- COMBINATORIAL_RECOMBINATION verdicts: 2 (C.1a Pratyāhāra, C.2 Hebrew binyanim)
+- NO_STRUCTURE_FOUND: 0
+- Remaining incomplete: 0
+
+### Key findings from Domain C
+
+**Dominant pattern: context-dependent evaluation is the primary expansion mechanism.** Three independent sub-topics (C.1c kāraka, C.3 Aramaic polysemy, C.4 cuneiform polyvalence) converge on the same structural expansion: making evaluation context-dependent. Current ExprNode evaluation is context-free. Adding context threading + polymorphic ops + determinative type annotations is a single coherent FORMAT_CHANGE.
+
+**Strongest cage-breaking candidates:**
+
+1. **Context-dependent evaluation** (C.3 + C.4 + C.1c) — Polymorphic PrimitiveOps with function sets, dispatchers, and context threading through evaluation. FORMAT_CHANGE. Extends F_theo: same tree structure can compute different functions based on evaluation context.
+
+2. **Resegmentation / latent structure discovery** (C.5 L2) — Re-parsing existing trees under alternative grammars reveals structure invisible to current parse. Zero-cost expansion (no new primitives needed).
+
+3. **Paribhāṣā conflict resolution** (C.1b) — Replace random rule selection in MetaGrammarLayer with operand-specificity-based deterministic resolution. Makes grammar expansion compositional and predictable.
+
+4. **Bidirectional abstraction** (C.6) — Library learning only coarse-grains (subtrees → primitives). The alphabetic decomposition principle adds fine-graining (primitives → sub-atomic components). Bidirectional movement across abstraction hierarchy.
+
+**Cross-domain connection:** C.6's fine-graining is the exact inverse of B.3 Wilson RG / LibraryLearner. The RSI system currently only moves in the RG direction; adding the reverse (decomposition) would enable full abstraction navigation.
+
+### Session assessment
+COMPLETE — All 8 sub-topics have full formal structure extractions. Domain C report written to docs/domains/domain-C-linguistics.md. Key insight: context-dependent evaluation is the dominant expansion mechanism (convergent across 3 independent sub-topics). Cross-domain: fine-graining (C.6) is inverse of coarse-graining (B.3/LibraryLearner).
