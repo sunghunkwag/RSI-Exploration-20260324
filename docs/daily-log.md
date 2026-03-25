@@ -309,3 +309,40 @@ COMPLETE — All 6 sub-topics have full formal structure extractions. Domain E r
 
 ### Session assessment
 COMPLETE — All 7 sub-topics have full formal structure extractions. Domain F report written to docs/domains/domain-F-architecture.md. Key insight: architecture/design domains are primarily about search efficiency, not expressibility. Only 2/7 STRUCTURAL_EXPANSION. Continuous primitives FORMAT_CHANGE now confirmed across 4 independent domains. New finding: origami algebraic tower extension (F.6).
+
+---
+
+## 2026-03-25 — Session 7: Domain G (Philosophy of Mathematics & Formal Epistemology)
+
+### Baseline
+- 49/49 tests pass
+- CAGE snapshot: no changes since Session 6 (same day)
+- Architectural ceiling: unchanged from Session 1
+- Today's domain: G (Philosophy of Mathematics & Formal Epistemology)
+- Previous sessions completed: Sessions 1-6 (Domains A-F)
+
+### Monitoring
+- arxiv: 0 incremental (7th session same day)
+- GitHub: 0 incremental
+- Cumulative: arxiv 57, GitHub 25
+
+### Domain investigation
+- Sub-topics investigated: 7
+- Full formal extractions completed: 7
+- STRUCTURAL_EXPANSION verdicts: 2 (G.1 Intuitionism/Constructive Math, G.6 Topos Theory)
+- COMBINATORIAL_RECOMBINATION verdicts: 3 (G.2 Lakatos, G.3 Structuralism, G.5 Forcing)
+- NO_STRUCTURE_FOUND: 2 (G.4 Reverse Mathematics, G.7 Incompleteness)
+- Remaining incomplete: 0
+
+### Key findings from Domain G
+
+**Philosophy of mathematics yields fewer expansions but deeper foundations.** Two genuine STRUCTURAL_EXPANSION candidates providing mathematical grounding for patterns from other domains.
+
+**Strongest candidates:**
+1. **Constructive proofs-as-programs** (G.1) — Curry-Howard: proofs ARE programs. Expansion via restriction. New pattern. Connects to D.5.
+2. **Topos-internal context-dependent evaluation** (G.6) — Mathematical foundation for C.3/C.4 pattern. 4 independent sources now.
+
+**Cross-domain:** G.1=NEW (expansion via restriction), G.6=C.3/C.4 (context-dependent eval), G.2=F.7 (search≠expansion), G.3=A.5 (structural quotient).
+
+### Session assessment
+COMPLETE — All 7 sub-topics. Domain G report written to docs/domains/domain-G-philosophy.md.
