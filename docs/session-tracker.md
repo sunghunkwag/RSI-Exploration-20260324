@@ -3,7 +3,7 @@
 | Session | Domain | Date       | Status     | Extractions | Candidates |
 |---------|--------|------------|------------|-------------|------------|
 | 1       | A      | 2026-03-25 | COMPLETE   | 7           | 6          |
-| 2       | B      |            | NOT_STARTED| 0           | 0          |
+| 2       | B      | 2026-03-25 | COMPLETE   | 9           | 4          |
 | 3       | C      |            | NOT_STARTED| 0           | 0          |
 | 4       | D      |            | NOT_STARTED| 0           | 0          |
 | 5       | E      |            | NOT_STARTED| 0           | 0          |

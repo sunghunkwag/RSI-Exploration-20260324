@@ -21,3 +21,16 @@
 - PGA-MAP-Elites (ollebompa/PGA-MAP-Elites) — RELEVANT: scalable quality-diversity search
 - DCRL-MAP-Elites (adaptive-intelligent-robotics/DCRL-MAP-Elites) — RELEVANT: descriptor-conditioned critic for MAP-Elites
 - PyTorch NEAT (ddehueck/pytorch-neat) — RELEVANT: runtime topology expansion via node/connection mutations
+
+## 2026-03-25 (Session 2)
+- arxiv scanned: 19, relevant: 8, deeper_read: 8
+- GitHub scanned: 0 (reused Session 1 scan, same day)
+- Cumulative: arxiv 57, GitHub 25
+
+### arxiv highlights (Session 2 incremental)
+- ShinkaEvolve (2509.19349) — DEEPER_READ: open-ended program evolution with LLM-driven framework (ICLR 2026)
+- AdaEvolve (2602.20133) — RELEVANT: hierarchical adaptive optimization for LLM-driven evolution
+- SymPE (2503.21985) — DEEPER_READ: symmetry breaking expanding representational power in equivariant networks
+- Parameter Symmetry Breaking (2502.05300) — DEEPER_READ: symmetry dynamics as mechanism for hierarchical representation formation
+- Representation theory and Langlands duality (2510.06990) — DEEPER_READ: pure math on representation theory
+- Cluster structures and tropical duality (2411.11633) — DEEPER_READ: representation theory with duality perspective

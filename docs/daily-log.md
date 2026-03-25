@@ -76,3 +76,48 @@ Updated `build_rsi_system()` factory with `use_library_learning`, `library_min_d
 
 ### Session assessment
 COMPLETE — All 7 sub-topics have full formal structure extractions with old/new format, transition operation, expressibility analysis, computability assessment, CAGE diagnosis, and transplant sketch. Domain A report written to docs/domains/domain-A-mathematics.md.
+
+---
+
+## 2026-03-25 — Session 2: Domain B (Physics, Cosmology & Fundamental Theory)
+
+### Baseline
+- 49/49 tests pass
+- CAGE snapshot: no changes since Session 1 (same day)
+- Architectural ceiling: unchanged from Session 1
+- Today's domain: B (Physics, Cosmology & Fundamental Theory)
+- Previous sessions completed: Session 1 (Domain A)
+
+### Monitoring
+- arxiv: 19 scanned, 8 relevant, 8 deeper_read (incremental)
+- GitHub: 0 incremental (reused Session 1 scan)
+- Cumulative: arxiv 57, GitHub 25
+
+### Domain investigation
+- Sub-topics investigated: 9
+- Full formal extractions completed: 9
+- STRUCTURAL_EXPANSION verdicts: 4 (B.1 Higgs, B.3 Wilson RG, B.7 M-theory, B.8 Electroweak)
+- COMBINATORIAL_RECOMBINATION verdicts: 5 (B.2 Landau, B.4 T-duality, B.5 S-duality, B.6 AdS/CFT, B.9 Nucleosynthesis)
+- NO_STRUCTURE_FOUND: 0
+- Remaining incomplete: 0
+
+### Key findings from Domain B
+
+**Critical pattern discovered: dualities are isomorphisms, not expansions.** T-duality, S-duality, and AdS/CFT all preserve F_theo. They provide computational access to different regimes but do not expand expressibility. This is an important diagnostic: any proposed "expansion" that is actually a duality/isomorphism should be immediately reclassified as COMBINATORIAL_RECOMBINATION.
+
+**Genuine expansions in physics come from two mechanisms:**
+
+1. **Symmetry breaking** (B.1 Higgs, B.8 Electroweak) — vacuum selection creates new mass eigenstates (linear combinations) inexpressible in the symmetric representation. FORMAT_CHANGE. Transplant: "vacuum selection" on ExprNode trees = fixing a structural template and expanding as perturbations around it.
+
+2. **Coarse-graining / RG** (B.3 Wilson) — integrating out fine structure generates new effective operators absent from original Lagrangian. Layer 1+2 expansion. **KEY INSIGHT: Wilson RG IS structurally identical to LibraryLearner.** The RSI system already implements the core RG operation. The connection is not metaphorical — it is formal.
+
+3. **Unification** (B.7 M-theory) — embedding multiple formats into a higher-dimensional framework reveals structure invisible in any single component. Transplant: define a meta-format subsuming ExprNode trees + stack-based + graph-based programs, evolve in meta-format. Directly addresses standing rule #12 (architectural question).
+
+**Within-format but useful for implementation:**
+
+4. **Threshold-gated expansion** (B.9 Nucleosynthesis) — staged unlocking of progressively disruptive operations based on "computational temperature." Transplant: define T_comp thresholds for MetaGrammarLayer operations.
+
+5. **Landscape bifurcation detection** (B.2 Landau) — monitor second derivative of fitness vs. control parameter to detect phase transitions in the evolutionary search. Trigger expansion at bifurcation points.
+
+### Session assessment
+COMPLETE — All 9 sub-topics have full formal structure extractions. Domain B report written to docs/domains/domain-B-physics.md. Key insight: Wilson RG = LibraryLearner (structural, not metaphorical). Pattern: dualities preserve F_theo; symmetry breaking and coarse-graining expand it.
