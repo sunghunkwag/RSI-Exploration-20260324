@@ -54,6 +54,62 @@ class PrimitiveOp:
         return self.fn(*args)
 
 
+@dataclass
+class EvalContext:
+    """
+    Evaluation context threaded through ExprNode evaluation.
+
+    Implements Mechanism 2 (Context-Dependent Evaluation) from Synthesis:
+    Sources: C.1c (Karaka), C.3 (Aramaic polysemy), C.4 (Cuneiform),
+             G.6 (Topos Theory), D.4 (Reflection).
+
+    The context enables polymorphic PrimitiveOps that dispatch to different
+    functions based on context state. For k context states and n ops,
+    up to nxk distinct functions become available per node.
+    """
+    niche_id: int = 0
+    generation: int = 0
+    env_tag: str = "default"
+    self_fingerprint: str = ""
+    custom: Dict = field(default_factory=dict)
+
+    def context_key(self) -> int:
+        """Return a discrete context state for dispatch."""
+        return hash((self.niche_id, self.env_tag)) % 4
+
+
+@dataclass
+class PolymorphicOp:
+    """
+    A PrimitiveOp that dispatches to different functions based on EvalContext.
+
+    Implements the core FORMAT_CHANGE from context-free to context-dependent
+    evaluation. Same tree structure can compute different functions depending
+    on the evaluation context.
+    """
+    name: str
+    arity: int
+    dispatch_table: Dict[int, Callable]
+    default_fn: Callable = None
+    cost: float = 1.5
+    description: str = ""
+
+    def __call__(self, *args, ctx: EvalContext = None):
+        if ctx is not None:
+            key = ctx.context_key()
+            fn = self.dispatch_table.get(key, self.default_fn)
+        else:
+            fn = self.default_fn
+        if fn is None:
+            fn = next(iter(self.dispatch_table.values()))
+        return fn(*args)
+
+    @property
+    def fn(self):
+        """Compatibility: return default_fn for non-context evaluation."""
+        return self.default_fn or next(iter(self.dispatch_table.values()))
+
+
 class VocabularyLayer:
     """Manages the set of primitive operations available to the system."""
 
@@ -506,10 +562,14 @@ class CostGroundingLoop:
         self.budget = budget
 
     def evaluate_with_cost(
-        self, tree: ExprNode, vocab: VocabularyLayer, fitness_fn: Callable
+        self, tree: ExprNode, vocab: VocabularyLayer, fitness_fn: Callable,
+        ctx: EvalContext = None
     ) -> Tuple[float, float, float]:
         self.budget.reset()
-        raw = fitness_fn(tree, vocab)
+        if ctx is not None:
+            raw = fitness_fn(tree, vocab, ctx=ctx)
+        else:
+            raw = fitness_fn(tree, vocab)
         self.budget.tick(tree.size() * 10)
         cost = self.budget.cost_score()
         return raw, cost, raw * cost
@@ -832,63 +892,94 @@ class SelfImprovementEngine:
 # 7. FITNESS FUNCTIONS
 # ---------------------------------------------------------------------------
 
-def _eval_tree(node: ExprNode, vocab: VocabularyLayer, x: float) -> float:
-    """Recursively evaluate an expression tree at input x."""
+def _eval_tree(node: ExprNode, vocab: VocabularyLayer, x: float,
+               ctx: EvalContext = None) -> float:
+    """
+    Recursively evaluate an expression tree at input x.
+
+    If ctx is provided, enables:
+    - Mechanism 1 (Self-Reference): 'self_encode' op returns the tree's own
+      fingerprint as a numeric hash, enabling fixed-point computations.
+    - Mechanism 2 (Context-Dependent Evaluation): PolymorphicOps dispatch to
+      different functions based on context state.
+    """
     if node.op_name == "input_x":
         return x
+    if node.op_name == "self_encode":
+        if ctx and ctx.self_fingerprint:
+            return (int(ctx.self_fingerprint[:8], 16) % 10000) / 10000.0
+        return 0.0
     op = vocab.get(node.op_name)
     if op is None:
         return 0.0
     if op.arity == 0:
-        return op()
-    child_vals = [_eval_tree(c, vocab, x) for c in node.children]
+        try:
+            return float(op())
+        except Exception:
+            return 0.0
+    child_vals = [_eval_tree(c, vocab, x, ctx) for c in node.children]
     if len(child_vals) < op.arity:
         child_vals.extend([0.0] * (op.arity - len(child_vals)))
     try:
-        result = op(*child_vals[:op.arity])
+        if isinstance(op, PolymorphicOp) and ctx is not None:
+            result = op(*child_vals[:op.arity], ctx=ctx)
+        else:
+            result = op(*child_vals[:op.arity])
         return float(result) if math.isfinite(float(result)) else 0.0
     except Exception:
         return 0.0
 
 
-def symbolic_regression_fitness(tree: ExprNode, vocab: VocabularyLayer) -> float:
+def symbolic_regression_fitness(tree: ExprNode, vocab: VocabularyLayer,
+                                ctx: EvalContext = None) -> float:
     """Target: f(x) = x^2 + 2x + 1  over [-5, 5]."""
+    if ctx is None:
+        ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="symreg")
     xs = np.linspace(-5, 5, 20)
-    error = sum(abs(_eval_tree(tree, vocab, x) - (x**2 + 2*x + 1)) for x in xs)
+    error = sum(abs(_eval_tree(tree, vocab, x, ctx) - (x**2 + 2*x + 1)) for x in xs)
     return 1.0 / (1.0 + min(error / len(xs), 1e6))
 
 
-def sine_approximation_fitness(tree: ExprNode, vocab: VocabularyLayer) -> float:
+def sine_approximation_fitness(tree: ExprNode, vocab: VocabularyLayer,
+                               ctx: EvalContext = None) -> float:
     """Target: f(x) = sin(x)  over [-pi, pi]."""
+    if ctx is None:
+        ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="sine")
     xs = np.linspace(-math.pi, math.pi, 30)
     error = 0.0
     for x in xs:
         try:
-            error += abs(_eval_tree(tree, vocab, x) - math.sin(x))
+            error += abs(_eval_tree(tree, vocab, x, ctx) - math.sin(x))
         except Exception:
             error += 1e6
     return 1.0 / (1.0 + min(error / len(xs), 1e6))
 
 
-def absolute_value_fitness(tree: ExprNode, vocab: VocabularyLayer) -> float:
+def absolute_value_fitness(tree: ExprNode, vocab: VocabularyLayer,
+                           ctx: EvalContext = None) -> float:
     """Target: f(x) = |x|  over [-5, 5]."""
+    if ctx is None:
+        ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="absval")
     xs = np.linspace(-5, 5, 30)
     error = 0.0
     for x in xs:
         try:
-            error += abs(_eval_tree(tree, vocab, x) - abs(x))
+            error += abs(_eval_tree(tree, vocab, x, ctx) - abs(x))
         except Exception:
             error += 1e6
     return 1.0 / (1.0 + min(error / len(xs), 1e6))
 
 
-def cubic_fitness(tree: ExprNode, vocab: VocabularyLayer) -> float:
+def cubic_fitness(tree: ExprNode, vocab: VocabularyLayer,
+                  ctx: EvalContext = None) -> float:
     """Target: f(x) = x^3 - x  over [-3, 3]."""
+    if ctx is None:
+        ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="cubic")
     xs = np.linspace(-3, 3, 30)
     error = 0.0
     for x in xs:
         try:
-            error += abs(_eval_tree(tree, vocab, x) - (x**3 - x))
+            error += abs(_eval_tree(tree, vocab, x, ctx) - (x**3 - x))
         except Exception:
             error += 1e6
     return 1.0 / (1.0 + min(error / len(xs), 1e6))
