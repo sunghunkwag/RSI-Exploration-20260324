@@ -259,3 +259,53 @@ COMPLETE — All 8 sub-topics have full formal structure extractions. Domain D r
 
 ### Session assessment
 COMPLETE — All 6 sub-topics have full formal structure extractions. Domain E report written to docs/domains/domain-E-music.md. Key insight: cross-domain convergence is the dominant finding — continuous primitives (E.3=B.1/B.8), preference rules (E.4=C.1b), group symmetry as recombination (E.2=B.4-B.6). No fundamentally new cage-breaking mechanism discovered; rather, Domain E reinforces and validates patterns from Domains A-D.
+
+---
+
+## 2026-03-25 — Session 6: Domain F (Architecture, Engineering & Design)
+
+### Baseline
+- 49/49 tests pass
+- CAGE snapshot: no changes since Session 5 (same day)
+- Architectural ceiling: unchanged from Session 1
+- Today's domain: F (Architecture, Engineering & Design)
+- Previous sessions completed: Sessions 1-5 (Domains A, B, C, D, E)
+
+### Monitoring
+- arxiv: 0 incremental (6th session same day)
+- GitHub: 0 incremental
+- Cumulative: arxiv 57, GitHub 25
+
+### Domain investigation
+- Sub-topics investigated: 7
+- Full formal extractions completed: 7
+- STRUCTURAL_EXPANSION verdicts: 2 (F.5 Topology Optimization, F.6 Origami Mathematics)
+- COMBINATORIAL_RECOMBINATION verdicts: 4 (F.1 Shape Grammars, F.2 Parametric Design, F.3 Tensegrity, F.7 Co-evolutionary Design)
+- NO_STRUCTURE_FOUND: 1 (F.4 Pattern Language)
+- Remaining incomplete: 0
+
+### Key findings from Domain F
+
+**Architecture/design domains are primarily about search efficiency, not expressibility.** Only 2 of 7 sub-topics yield STRUCTURAL_EXPANSION — the lowest ratio of any domain so far. Root cause: mathematics and music concern *what is computable*; architecture concerns *how to design well*. These are orthogonal.
+
+**Strongest cage-breaking candidates:**
+
+1. **Topology optimization / continuous density fields** (F.5) — FORMAT_CHANGE from discrete binary members to continuous density field ρ: Ω → [0,1]. Same recurring discrete→continuous expansion as E.3 (spectral music), B.1/B.8 (physics). Now 4 independent domains identify this mechanism. Layer 1+2+FORMAT.
+
+2. **Origami algebraic tower extension** (F.6) — Huzita-Hatori fold axioms expand constructible objects from quadratic field Q(√·) to cubic field Q(∛·). Galois-theoretically proven: origami group properly contains compass-straightedge group. New pattern not previously seen — domain-specific but formally rigorous. Layer 1+2+FORMAT.
+
+**Within-format (not cage-breaking):**
+
+3. **Problem inversion** (F.1, F.2, F.3) — All three involve inverting problem direction (forward↔backward, specification↔derivation). None expand F_theo. Confirms Domain B pattern: inversions/dualities = COMBINATORIAL_RECOMBINATION.
+
+4. **Co-evolution** (F.7) — Better search dynamics ≠ expanded expressibility. Confirms E.5, B.4-B.6 pattern.
+
+5. **Pattern Language** (F.4) — Design philosophy, deliberately resists formalization. NO_STRUCTURE_FOUND.
+
+**Key cross-domain patterns:**
+- F.5 = E.3 = B.1/B.8 (continuous primitives, now in 4 domains)
+- F.1/F.2/F.3 confirm B.4-B.6 (inversions/dualities = recombination)
+- F.7 confirms E.5 (search improvement ≠ expressibility expansion)
+
+### Session assessment
+COMPLETE — All 7 sub-topics have full formal structure extractions. Domain F report written to docs/domains/domain-F-architecture.md. Key insight: architecture/design domains are primarily about search efficiency, not expressibility. Only 2/7 STRUCTURAL_EXPANSION. Continuous primitives FORMAT_CHANGE now confirmed across 4 independent domains. New finding: origami algebraic tower extension (F.6).
