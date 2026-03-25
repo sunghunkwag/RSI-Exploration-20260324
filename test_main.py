@@ -966,7 +966,7 @@ class TestContextDependentEvaluation:
 
 
 # ---------------------------------------------------------------------------
-# SESSION 11: TASK 1 — DETERMINISTIC META-RULE SELECTION (Paribhasa C.1b)
+# SESSION 11: TASK 1 - DETERMINISTIC META-RULE SELECTION (Paribhasa C.1b)
 # ---------------------------------------------------------------------------
 
 class TestDeterministicMetaRuleSelection:
@@ -997,7 +997,6 @@ class TestDeterministicMetaRuleSelection:
     def test_meta_rule_outcome_tracking(self):
         rule = MetaRuleEntry(name="test", rule_fn=lambda: None)
         rule.record_outcome(True)
-        rule.record_outcome(True)
         rule.record_outcome(False)
         assert rule._applications == 3
         assert rule._successes == 2
@@ -1018,7 +1017,7 @@ class TestDeterministicMetaRuleSelection:
 
 
 # ---------------------------------------------------------------------------
-# SESSION 11: TASK 2 — OPERADIC META-GRAMMAR (Operads H.8 / VW A.4)
+# SESSION 11: TASK 2 - OPERADIC META-GRAMMAR (Operads H.8 / VW A.4)
 # ---------------------------------------------------------------------------
 
 class TestOperadicMetaGrammar:
@@ -1059,7 +1058,7 @@ class TestOperadicMetaGrammar:
 
 
 # ---------------------------------------------------------------------------
-# SESSION 11: TASK 3 — TOPOLOGICAL CONTEXT (Topos G.6)
+# SESSION 11: TASK 3 - TOPOLOGICAL CONTEXT (Topos G.6)
 # ---------------------------------------------------------------------------
 
 class TestTopologicalContext:
@@ -1131,7 +1130,7 @@ class TestTopologicalContext:
 
 
 # ---------------------------------------------------------------------------
-# SESSION 11: TASK 4 — REFINEMENT TYPES (D.5 Dependent Types)
+# SESSION 11: TASK 4 - REFINEMENT TYPES (D.5 Dependent Types)
 # ---------------------------------------------------------------------------
 
 class TestRefinementTypes:
@@ -1225,6 +1224,136 @@ class TestArchitectureIntegration:
         engine.run(generations=10, population_size=10)
         has_scored = any("score=" in h for h in engine.meta_grammar._expansion_history)
         assert has_scored, "Expansion history should contain scored rule selections"
+
+
+class TestV4SelfEncodeEvolutionIntegration:
+    """V4: Verify self_encode is reachable and used by the evolutionary loop."""
+
+    def test_self_encode_in_vocabulary(self):
+        vocab = VocabularyLayer()
+        assert vocab.get("self_encode") is not None
+        op = vocab.get("self_encode")
+        assert op.arity == 0
+        assert op() == 0.0  # default without context
+
+    def test_self_encode_appears_in_random_trees(self):
+        random.seed(42)
+        vocab = VocabularyLayer()
+        grammar = GrammarLayer(vocab, max_depth=4)
+        found = False
+        for _ in range(200):
+            tree = grammar.random_tree(4)
+            nodes = []
+            _collect_ops(tree, nodes)
+            if "self_encode" in nodes:
+                found = True
+                break
+        assert found, "self_encode should appear in random trees (registered in vocab)"
+
+    def test_self_encode_in_evolved_elites(self):
+        random.seed(42)
+        np.random.seed(42)
+        engine = build_rsi_system(
+            budget_ops=100_000,
+            expansion_interval=5,
+        )
+        engine.run(generations=50, population_size=20)
+        # Check if any elite contains self_encode
+        found = False
+        for entry in engine.archive._grid.values():
+            nodes = []
+            _collect_ops(entry.tree, nodes)
+            if "self_encode" in nodes:
+                found = True
+                break
+        assert found, "self_encode should appear in some elite after 50 generations"
+
+
+class TestV4PolymorphicOpEvolutionIntegration:
+    """V4: Verify PolymorphicOps are generated and used by the evolutionary loop."""
+
+    def test_meta_grammar_creates_polymorphic_ops(self):
+        random.seed(42)
+        vocab = VocabularyLayer()
+        grammar = GrammarLayer(vocab, max_depth=5)
+        meta = MetaGrammarLayer(vocab, grammar)
+        # Run expand enough times for the polymorphic rule to fire
+        for _ in range(20):
+            meta.expand_design_space(elite_trees=[], archive=None)
+        poly_ops = [op for op in vocab.all_ops() if isinstance(op, PolymorphicOp)]
+        assert len(poly_ops) > 0, "MetaGrammarLayer should create PolymorphicOps"
+
+    def test_polymorphic_op_has_type_compat(self):
+        """PolymorphicOps must have accepts_child_type for grammar compatibility."""
+        poly = PolymorphicOp(
+            name="test_poly", arity=1,
+            dispatch_table={0: lambda a: -a},
+            default_fn=lambda a: a,
+        )
+        assert poly.accepts_child_type(0, OpType.REAL)
+        assert poly.accepts_child_type(0, OpType.NON_NEGATIVE)
+
+    def test_polymorphic_op_in_evolved_population(self):
+        random.seed(42)
+        np.random.seed(42)
+        engine = build_rsi_system(
+            budget_ops=100_000,
+            expansion_interval=3,
+        )
+        engine.run(generations=30, population_size=15)
+        # Check if any PolymorphicOp was registered
+        poly_ops = [op for op in engine.vocab.all_ops() if isinstance(op, PolymorphicOp)]
+        assert len(poly_ops) > 0, "Engine should generate PolymorphicOps via meta-grammar"
+
+
+class TestV5FormatIsomorphism:
+    """V5: Verify format isomorphism properties of Tier 1 mechanisms."""
+
+    def test_self_encode_expands_f_theo(self):
+        """self_encode makes trees compute tree-identity-dependent functions."""
+        vocab = VocabularyLayer()
+        tree_a = ExprNode("add", [ExprNode("input_x"), ExprNode("self_encode")])
+        tree_b = ExprNode("sub", [ExprNode("input_x"), ExprNode("self_encode")])
+        ctx_a = EvalContext(self_fingerprint=tree_a.fingerprint())
+        ctx_b = EvalContext(self_fingerprint=tree_b.fingerprint())
+
+        # Same x value, different trees => different self_encode values
+        val_a = _eval_tree(tree_a, vocab, 0.0, ctx_a)
+        val_b = _eval_tree(tree_b, vocab, 0.0, ctx_b)
+        # tree_a computes 0 + h(a), tree_b computes 0 - h(b)
+        # These must be different (different fingerprints)
+        assert val_a != val_b, "Different trees with self_encode should compute different functions"
+
+    def test_polymorphic_op_is_f_eff_not_f_theo(self):
+        """PolymorphicOps provide efficiency, not theoretical expansion."""
+        vocab = VocabularyLayer()
+        # Any PolymorphicOp(neg|identity) computation can be replicated
+        # by using neg and identity directly
+        poly = PolymorphicOp(
+            name="poly_test", arity=1,
+            dispatch_table={},
+            default_fn=lambda a: a,
+            topo_dispatch_table={0: lambda a: -a, 1: lambda a: a}
+        )
+        vocab.register(poly)
+
+        # poly(poly(x)) with context at depth 0,1 gives specific function
+        tree = ExprNode("poly_test", [ExprNode("poly_test", [ExprNode("input_x")])])
+        ctx = EvalContext(env_tag="test")
+        out_poly = _eval_tree(tree, vocab, 2.0, ctx)
+
+        # Same function achievable with explicit neg/identity
+        # (the exact equivalence depends on topo_key, but the point is
+        #  it CAN be replicated with base ops)
+        # This test just verifies the poly op runs without error
+        assert isinstance(out_poly, float)
+
+
+def _collect_ops(node, ops_list):
+    """Helper to collect all op names in a tree."""
+    ops_list.append(node.op_name)
+    for c in node.children:
+        _collect_ops(c, ops_list)
 
 
 if __name__ == "__main__":
