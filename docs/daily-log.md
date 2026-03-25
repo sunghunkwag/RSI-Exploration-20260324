@@ -58,7 +58,7 @@ Updated `build_rsi_system()` factory with `use_library_learning`, `library_min_d
 **Strongest cage-breaking candidates (Layer 3 / FORMAT_CHANGE):**
 
 1. **A.3 Adaptive Grammars (Shutt)** — Rule set becomes dynamic semantic object modified during evaluation. Layer 3.
-2. **A.4 Van Wijngaarden Two-Level Grammars** — Metarules + hyperrules generate infinite concrete grammar from finite specification. Layer 3 → Layer 2.
+2. **A.4 Van Wijngaarden Two-Level Grammars** — Metarules + hyperrules generate infinite concrete grammar from finite specification. Layer 3 -> Layer 2.
 3. **A.7 Diagonal Lemma (Self-Reference)** — Trees that can reference their own encoding. FORMAT_CHANGE.
 4. **A.1 Induction-Recursion** — Simultaneous definition of codes + interpretation. Layer 3 + FORMAT_CHANGE.
 
@@ -107,8 +107,8 @@ COMPLETE — All 9 sub-topics. Domain B report written to docs/domains/domain-B-
 ### Domain investigation
 - Sub-topics investigated: 8
 - Full formal extractions completed: 8
-- STRUCTURAL_EXPANSION verdicts: 5 (C.1b Paribhāṣā, C.1c Kāraka, C.3 Aramaic polysemy, C.4 Cuneiform evolution, C.5 DSS variants)
-- COMBINATORIAL_RECOMBINATION verdicts: 2 (C.1a Pratyāhāra, C.2 Hebrew binyanim)
+- STRUCTURAL_EXPANSION verdicts: 5 (C.1b Paribhasa, C.1c Karaka, C.3 Aramaic polysemy, C.4 Cuneiform evolution, C.5 DSS variants)
+- COMBINATORIAL_RECOMBINATION verdicts: 2 (C.1a Pratyahara, C.2 Hebrew binyanim)
 - Mixed: 1 (C.6 Script evolution)
 
 ### Key findings from Domain C
@@ -116,7 +116,7 @@ COMPLETE — All 9 sub-topics. Domain B report written to docs/domains/domain-B-
 **Dominant pattern: context-dependent evaluation is the primary expansion mechanism.** Three independent sub-topics converge on making evaluation context-dependent.
 
 1. **Context-dependent evaluation** (C.3 + C.4 + C.1c) — Polymorphic PrimitiveOps with context threading. FORMAT_CHANGE.
-2. **Paribhāṣā conflict resolution** (C.1b) — Replace random rule selection with specificity-based deterministic resolution.
+2. **Paribhasa conflict resolution** (C.1b) — Replace random rule selection with specificity-based deterministic resolution.
 3. **Bidirectional abstraction** (C.6) — Fine-graining = inverse of B.3 Wilson RG / LibraryLearner.
 
 ### Session assessment
@@ -133,15 +133,15 @@ COMPLETE — All 8 sub-topics. Domain C report written to docs/domains/domain-C-
 ### Domain investigation
 - Sub-topics investigated: 8
 - Full formal extractions completed: 8
-- STRUCTURAL_EXPANSION verdicts: 5 (D.1 Quines/Kleene, D.5 Type Systems, D.6 Automata/TAG, D.7 Gödel Machines, D.8 Continuations/Effects)
+- STRUCTURAL_EXPANSION verdicts: 5 (D.1 Quines/Kleene, D.5 Type Systems, D.6 Automata/TAG, D.7 Godel Machines, D.8 Continuations/Effects)
 - COMBINATORIAL_RECOMBINATION verdicts: 3 (D.2 GGGP/GE, D.3 DreamCoder, D.4 Reflection)
 
 ### Key findings from Domain D
 
-**Self-reference is the master cage-breaking mechanism.** D.1→D.4→D.7 progression.
+**Self-reference is the master cage-breaking mechanism.** D.1->D.4->D.7 progression.
 
-1. **Gödel Machine** (D.7) — system rewrites its own evaluation mechanism; ultimate cage-breaking.
-2. **Quines / self-reference** (D.1) — trees referencing own encoding. ≡ A.7.
+1. **Godel Machine** (D.7) — system rewrites its own evaluation mechanism; ultimate cage-breaking.
+2. **Quines / self-reference** (D.1) — trees referencing own encoding. = A.7.
 3. **Continuations / algebraic effects** (D.8) — adds entire control flow dimension.
 4. **TAG adjunction** (D.6) — moves ExprNode to mildly context-sensitive.
 5. **Dependent types** (D.5) — type-indexed composition rules.
@@ -187,8 +187,8 @@ COMPLETE — All 6 sub-topics. Domain E report written to docs/domains/domain-E-
 
 **Architecture/design primarily about search efficiency, not expressibility.** Only 2/7 STRUCTURAL_EXPANSION.
 
-1. **Topology optimization** (F.5) — discrete→continuous FORMAT_CHANGE (=E.3=B.1/B.8, now 4 domains).
-2. **Origami algebraic tower** (F.6) — quadratic→cubic field extension. New Galois-theoretic expansion.
+1. **Topology optimization** (F.5) — discrete->continuous FORMAT_CHANGE (=E.3=B.1/B.8, now 4 domains).
+2. **Origami algebraic tower** (F.6) — quadratic->cubic field extension. New Galois-theoretic expansion.
 
 ### Session assessment
 COMPLETE — All 7 sub-topics. Domain F report written to docs/domains/domain-F-architecture.md.
@@ -247,8 +247,8 @@ COMPLETE — All 7 sub-topics. Domain G report written to docs/domains/domain-G-
 
 **Strongest candidates:**
 1. **Operads as meta-grammar** (H.8) — Grammar for grammars. Directly formalizes MetaGrammarLayer. Koszul duality auto-generates dual rule systems.
-2. **Categorification** (H.5) — Systematic format lifting (int→vector space, polynomial→chain complex). Functorial information gain.
-3. **Crystal bases** (H.3) — Expansion via dimensional reduction (q→0). Paradoxical expansion via restriction (matches G.1).
+2. **Categorification** (H.5) — Systematic format lifting (int->vector space, polynomial->chain complex). Functorial information gain.
+3. **Crystal bases** (H.3) — Expansion via dimensional reduction (q->0). Paradoxical expansion via restriction (matches G.1).
 4. **Geometric rep theory** (H.4) — Sheaf-theoretic methods reveal algebraically invisible structure.
 5. **Quiver root classification** (H.2) — Dynkin diagrams organize representation types.
 
@@ -256,3 +256,89 @@ COMPLETE — All 7 sub-topics. Domain G report written to docs/domains/domain-G-
 
 ### Session assessment
 COMPLETE — All 8 sub-topics. Domain H report written to docs/domains/domain-H-representation.md.
+
+---
+
+## 2026-03-25 — Session 9: Synthesis (Cross-Domain Analysis)
+
+### Baseline
+- 49/49 tests pass (no code changes in this session)
+- Previous sessions completed: Sessions 1-8 (Domains A-H)
+
+### Synthesis results
+
+**Aggregate across 8 domains:** 60 extractions total. 33 STRUCTURAL_EXPANSION (55%), 23 COMBINATORIAL_RECOMBINATION (38%), 3 NO_STRUCTURE_FOUND (5%), 1 Mixed (2%).
+
+**Highest expansion-rate domains:** A-Mathematics (86%), E-Music (67%), C-Linguistics (63%), D-CS (63%), H-Representation (63%).
+
+**7 converged mechanism families identified:**
+
+1. **Self-Reference** (Master Cage-Breaker) — A.7, D.1, D.7. Trees encoding their own structure. Unlocks fixed-point computations. Priority: HIGHEST.
+2. **Context-Dependent Evaluation** — C.1c, C.3, C.4, G.6, D.4. eval(T,x) becomes eval(T,x,ctx). Polymorphic dispatch. Priority: HIGH.
+3. **Adaptive Grammar / Meta-Grammar Formalization** — A.3, A.4, H.8, D.6. Rule sets as first-class dynamic objects. Operadic composition. Priority: HIGH.
+4. **Discrete->Continuous FORMAT_CHANGE** — B.1, B.8, E.3, E.6, F.5, F.6. Continuous primitives strictly expand F_theo. Priority: MEDIUM.
+5. **Preference-Based Rule Selection** — C.1b, E.4, D.5. Deterministic conflict resolution replacing random selection. Priority: MEDIUM.
+6. **Categorification / Systematic Format Lifting** — H.5, H.4, A.2, A.1. Functorial lifting preserving structure. Priority: MEDIUM.
+7. **Bidirectional Abstraction** — B.3, C.6, H.2. Inverse of LibraryLearner: fine-graining. Priority: LOW.
+
+**Implementation roadmap:**
+- Tier 1 (Maximum Impact, Implementable Now): Mechanisms 1 + 2
+- Tier 2 (High Impact, Requires Architecture Work): Mechanisms 3 + 5
+- Tier 3 (Valuable, Longer Horizon): Mechanisms 4 + 6 + 7
+
+### Session assessment
+COMPLETE — Synthesis report written to docs/synthesis.md.
+
+---
+
+## 2026-03-25 — Session 10: Build (Tier 1 Implementation)
+
+### Baseline
+- 49/49 tests pass (pre-build)
+- Previous sessions completed: Sessions 1-9
+
+### Implementation: Mechanism 1 — Self-Reference
+
+**What was built:**
+- `self_encode` built-in op in `_eval_tree`: when a node's op is `"self_encode"`, it reads `ctx.self_fingerprint`, converts the first 8 hex chars to a float in [0,1), and returns it. Without context, returns 0.0 (backward compatible).
+- All 4 fitness functions (`symbolic_regression_fitness`, `sine_approximation_fitness`, `absolute_value_fitness`, `cubic_fitness`) updated to accept optional `ctx: EvalContext = None` and auto-populate `self_fingerprint` from `tree.fingerprint()`.
+
+**F_theo expansion proof:** Self-referential trees can compute fixed-point functions of their own structure — e.g., `add(input_x, self_encode)` computes `f(x) = x + h(T)` where `h(T)` depends on the tree's identity. Non-self-referential trees cannot distinguish themselves from structurally different trees computing the same function. The self_encode op makes each tree's computation dependent on its own identity, strictly expanding the space of representable input-output mappings.
+
+### Implementation: Mechanism 2 — Context-Dependent Evaluation
+
+**What was built:**
+- `EvalContext` dataclass: `niche_id`, `generation`, `env_tag`, `self_fingerprint`, `custom` dict. Method `context_key() -> int` hashes `(niche_id, env_tag)` to range [0,3].
+- `PolymorphicOp` dataclass: `dispatch_table: Dict[int, Callable]` maps context keys to different implementations. Falls back to `default_fn` when no context or key not in table.
+- `_eval_tree` updated: signature `_eval_tree(node, vocab, x, ctx=None)`. Handles `self_encode` special case. For `PolymorphicOp` instances, passes `ctx` to dispatch.
+- `CostGroundingLoop.evaluate_with_cost` accepts optional `ctx` parameter.
+
+**F_theo expansion proof:** A context-free tree with n ops computes a fixed function. A context-dependent tree with the same n ops and k=4 context states can compute up to 4 different functions per polymorphic node. For any tree containing at least one PolymorphicOp, F_theo strictly increases.
+
+### Tests added
+- `TestSelfReference`: 5 tests (determinism, differentiation, composition, no-context fallback, fixed-point property)
+- `TestContextDependentEvaluation`: 8 tests (context creation, key range, polymorphic dispatch, default behavior, eval_tree integration, F_theo proof-of-concept, backward compatibility, fitness function integration)
+- **62/62 tests pass** (49 existing + 13 new)
+
+### Files modified
+- `main.py` — EvalContext, PolymorphicOp, _eval_tree update, fitness function updates (~+120 lines)
+- `test_main.py` — 13 new tests in 2 test classes (~+145 lines)
+
+### Commits
+- `31a2d48` — main.py with Mechanism 1 + 2 implementation
+- `7cf9aeb` — test_main.py with 13 new tests
+
+### Session assessment
+COMPLETE — Tier 1 mechanisms (Self-Reference + Context-Dependent Evaluation) implemented, tested, and pushed.
+
+---
+
+## Protocol Summary: Design Space Escape Protocol v4
+
+**Total sessions:** 10 (8 domain + 1 synthesis + 1 build)
+**Total extractions:** 60 across 8 domains
+**STRUCTURAL_EXPANSION rate:** 55% (33/60)
+**Mechanism families identified:** 7
+**Mechanisms implemented:** 2 (Tier 1: Self-Reference + Context-Dependent Evaluation)
+**Final test count:** 62/62 pass
+**Architectural ceilings addressed:** #1 (self-reference) fully, #2 (adaptive grammar) partially via context-dependent evaluation
