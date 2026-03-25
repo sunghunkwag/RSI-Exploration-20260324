@@ -11,4 +11,4 @@
 | 7       | G      | 2026-03-25 | COMPLETE   | 7           | 2          |
 | 8       | H      | 2026-03-25 | COMPLETE   | 8           | 5          |
 | 9       | SYNTH  | 2026-03-25 | COMPLETE   | —           | 7 mechanisms |
-| 10      | BUILD  |            | NOT_STARTED| —           | —          |
+| 10      | BUILD  | 2026-03-25 | COMPLETE   | —           | 2 mechanisms |
