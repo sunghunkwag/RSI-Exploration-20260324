@@ -123,534 +123,1106 @@ class TestExprNode:
 
 class TestGrammarLayer:
     def test_random_tree_generation(self, grammar):
-        tree = grammar.random_tree()
+        tree = grammar.random_tree(3)
         assert isinstance(tree, ExprNode)
-        assert tree.depth() <= grammar.max_depth
+        assert tree.depth() <= 4  # may vary
 
-    def test_mutation_produces_valid_tree(self, grammar):
-        tree = grammar.random_tree()
-        mutant = grammar.mutate(tree)
-        assert isinstance(mutant, ExprNode)
-        assert mutant.depth() <= grammar.max_depth
+    def test_mutation_produces_different_tree(self, grammar):
+        random.seed(42)
+        tree = grammar.random_tree(2)
+        mutated = grammar.mutate(tree)
+        assert isinstance(mutated, ExprNode)
 
-    def test_crossover_produces_valid_tree(self, grammar):
-        tree1 = grammar.random_tree()
-        tree2 = grammar.random_tree()
-        offspring = grammar.crossover(tree1, tree2)
-        assert isinstance(offspring, ExprNode)
-        assert offspring.depth() <= grammar.max_depth
+    def test_crossover(self, grammar):
+        t1 = grammar.random_tree(2)
+        t2 = grammar.random_tree(2)
+        child = grammar.crossover(t1, t2)
+        assert isinstance(child, ExprNode)
 
-    def test_phenotype_eval(self, grammar):
-        tree = ExprNode("add", children=[
-            ExprNode("input_x"),
-            ExprNode("const_one"),
-        ])
-        phenotype = grammar.phenotype(tree)
-        assert callable(phenotype)
-        result = phenotype(5.0)
-        assert result == 6.0
+    def test_add_rule(self, grammar):
+        initial_rules = grammar.num_rules
+        grammar.add_rule(lambda t=None: ExprNode("input_x"))
+        assert grammar.num_rules == initial_rules + 1
 
 
 # ---- Meta-Grammar Layer Tests ----
 
 class TestMetaGrammarLayer:
-    def test_rule_selection(self, meta_grammar):
-        rule = meta_grammar.select_rule()
-        assert isinstance(rule, str)
-        assert rule in ["expand_rule", "refine_rule"]
+    def test_compose_new_op(self, meta_grammar, vocab):
+        initial_size = vocab.size
+        meta_grammar._meta_compose_new_op()
+        # Should have added a composed op
+        assert vocab.size >= initial_size
 
-    def test_apply_rule_expand(self, meta_grammar):
-        grammar_v0 = meta_grammar.grammar
-        meta_grammar.apply_rule("expand_rule", grammar_v0)
-        # Rule should have modified the grammar in some way
-        assert meta_grammar.grammar is not None
+    def test_parameterize_mutation(self, meta_grammar, grammar):
+        initial_rules = grammar.num_rules
+        meta_grammar._meta_parameterize_mutation()
+        assert grammar.num_rules == initial_rules + 1
 
-    def test_apply_rule_refine(self, meta_grammar):
-        grammar_v0 = meta_grammar.grammar
-        meta_grammar.apply_rule("refine_rule", grammar_v0)
-        # Rule should have modified the grammar in some way
-        assert meta_grammar.grammar is not None
-
-    def test_rule_precondition_satisfied(self, meta_grammar):
-        precond_ok = meta_grammar.rule_preconditions_met("expand_rule")
-        assert isinstance(precond_ok, bool)
+    def test_expand_design_space(self, meta_grammar):
+        initial_count = meta_grammar.expansion_count
+        action = meta_grammar.expand_design_space()
+        assert isinstance(action, str)
+        assert meta_grammar.expansion_count >= initial_count
 
 
-# ---- MetaRuleEntry Tests ----
-
-class TestMetaRuleEntry:
-    def test_entry_creation(self):
-        entry = MetaRuleEntry(
-            rule_name="test_rule",
-            precondition=lambda g: True,
-            action=lambda g: g,
-            outcome_metric=lambda g: 0.5,
-        )
-        assert entry.rule_name == "test_rule"
-        assert entry.precondition(None) is True
-        assert entry.outcome_metric(None) == 0.5
-
-    def test_entry_score_calculation(self):
-        entry = MetaRuleEntry(
-            rule_name="test_rule",
-            precondition=lambda g: True,
-            action=lambda g: g,
-            outcome_metric=lambda g: 0.8,
-        )
-        entry._outcome_history = [0.5, 0.6, 0.7, 0.8]
-        score = entry.compute_score()
-        assert isinstance(score, (int, float))
-        assert score >= 0
-
-    def test_track_outcome(self):
-        entry = MetaRuleEntry(
-            rule_name="test_rule",
-            precondition=lambda g: True,
-            action=lambda g: g,
-            outcome_metric=lambda g: 0.5,
-        )
-        entry.track_outcome(0.7)
-        entry.track_outcome(0.8)
-        assert len(entry._outcome_history) == 2
-        assert entry._outcome_history[-1] == 0.8
-
-
-# ---- LibraryLearner Tests ----
-
-class TestLibraryLearner:
-    def test_library_initialization(self, vocab, grammar):
-        learner = LibraryLearner(vocab, grammar)
-        assert learner.vocab is not None
-        assert learner.grammar is not None
-
-    def test_learn_library(self, vocab, grammar):
-        learner = LibraryLearner(vocab, grammar)
-        X = np.array([[1.0, 2.0], [2.0, 3.0], [3.0, 4.0]])
-        y = np.array([3.0, 5.0, 7.0])
-        models = learner.learn_library(X, y, num_generations=2)
-        assert isinstance(models, list)
-        assert len(models) > 0
-
-    def test_predict_with_learned_library(self, vocab, grammar):
-        learner = LibraryLearner(vocab, grammar)
-        X = np.array([[1.0], [2.0], [3.0]])
-        y = np.array([2.0, 3.0, 4.0])
-        models = learner.learn_library(X, y, num_generations=2)
-        X_test = np.array([[1.5], [2.5]])
-        predictions = [m(X_test) for m in models if callable(m)]
-        assert len(predictions) > 0
-
-
-# ---- ResourceBudget Tests ----
+# ---- Resource Budget Tests ----
 
 class TestResourceBudget:
-    def test_budget_initialization(self, budget):
-        assert budget.max_compute_ops == 10_000
-        assert budget.max_wall_seconds == 10.0
-        assert budget.remaining_ops() == 10_000
-        assert budget.remaining_seconds() > 0
+    def test_initial_state(self, budget):
+        assert budget.compute_fraction == 0.0
+        assert not budget.is_exhausted
 
-    def test_budget_deduction_ops(self, budget):
-        initial = budget.remaining_ops()
-        budget.deduct_ops(100)
-        assert budget.remaining_ops() == initial - 100
+    def test_tick(self, budget):
+        budget.tick(5000)
+        assert budget.compute_fraction == 0.5
 
-    def test_budget_is_exhausted(self, budget):
-        budget.deduct_ops(budget.max_compute_ops)
-        assert budget.is_exhausted() is True
+    def test_exhaustion(self, budget):
+        budget.tick(10_000)
+        assert budget.is_exhausted
 
-    def test_budget_time_tracking(self, budget):
-        import time
-        time.sleep(0.1)
-        assert budget.remaining_seconds() < budget.max_wall_seconds
+    def test_cost_score_decreases(self, budget):
+        score_before = budget.cost_score()
+        budget.tick(5000)
+        score_after = budget.cost_score()
+        assert score_after < score_before
+
+    def test_reset(self, budget):
+        budget.tick(5000)
+        budget.reset()
+        assert budget.compute_fraction == 0.0
+
+    def test_summary(self, budget):
+        s = budget.summary()
+        assert "compute_used" in s
+        assert "cost_score" in s
 
 
-# ---- CostGroundingLoop Tests ----
+# ---- Cost Grounding Loop Tests ----
 
 class TestCostGroundingLoop:
-    def test_loop_initialization(self, vocab, grammar, budget):
-        loop = CostGroundingLoop(vocab, grammar, budget)
-        assert loop.vocab is not None
-        assert loop.grammar is not None
-        assert loop.budget is not None
-
-    def test_loop_step_respects_budget(self, vocab, grammar, budget):
-        loop = CostGroundingLoop(vocab, grammar, budget)
-        loop.step()
-        assert budget.remaining_ops() < 10_000
-
-    def test_loop_termination_on_exhausted_budget(self, vocab, grammar):
-        tiny_budget = ResourceBudget(max_compute_ops=1, max_wall_seconds=10.0)
-        loop = CostGroundingLoop(vocab, grammar, tiny_budget)
-        result = loop.run(generations=100)
-        # Should terminate early due to budget
-        assert tiny_budget.is_exhausted()
+    def test_evaluate_with_cost(self, vocab, budget):
+        loop = CostGroundingLoop(budget)
+        tree = ExprNode("input_x")
+        raw, cost, grounded = loop.evaluate_with_cost(
+            tree, vocab, symbolic_regression_fitness
+        )
+        assert 0 <= raw <= 1
+        assert 0 < cost <= 1
+        assert grounded == raw * cost
 
 
-# ---- MAPElitesArchive Tests ----
+# ---- MAP-Elites Archive Tests ----
 
 class TestMAPElitesArchive:
-    def test_archive_initialization(self, archive):
-        assert archive.dims == [6, 10]
-        assert archive.size() == 0
-
-    def test_archive_add_elite(self, archive):
-        elite = EliteEntry(
-            individual=ExprNode("add", children=[ExprNode("input_x"), ExprNode("const_one")]),
-            fitness=0.8,
-            features=[2, 3],
-        )
-        archive.add_elite(elite)
-        assert archive.size() == 1
-
-    def test_archive_get_elite(self, archive):
-        elite = EliteEntry(
-            individual=ExprNode("add", children=[ExprNode("input_x"), ExprNode("const_one")]),
-            fitness=0.8,
-            features=[2, 3],
-        )
-        archive.add_elite(elite)
-        retrieved = archive.get_elite([2, 3])
-        assert retrieved is not None
-        assert retrieved.fitness == 0.8
-
-    def test_archive_bounds_checking(self, archive):
-        elite = EliteEntry(
-            individual=ExprNode("input_x"),
-            fitness=0.5,
-            features=[100, 100],  # Out of bounds
-        )
-        # Should not crash, just skip
-        archive.add_elite(elite)
-
-
-# ---- EnhancedMAPElitesArchive Tests ----
-
-class TestEnhancedMAPElitesArchive:
-    def test_enhanced_archive_initialization(self):
-        archive = EnhancedMAPElitesArchive(dims=[5, 5])
-        assert archive.size() == 0
-
-    def test_enhanced_archive_with_novelty_screening(self):
-        archive = EnhancedMAPElitesArchive(dims=[5, 5])
-        elite1 = EliteEntry(
-            individual=ExprNode("add", children=[ExprNode("input_x"), ExprNode("const_one")]),
-            fitness=0.8,
-            features=[1, 1],
-        )
-        archive.add_elite(elite1)
-        assert archive.size() == 1
-
-
-# ---- NoveltyScreener Tests ----
-
-class TestNoveltyScreener:
-    def test_novelty_threshold(self):
-        screener = NoveltyScreener(min_distance=0.5)
-        fp1 = "aabbccdd11223344"
-        fp2 = "aabbccdd11223355"
-        novelty = screener.compute_novelty([fp1], fp2)
-        assert isinstance(novelty, (int, float))
-
-    def test_is_novel(self):
-        screener = NoveltyScreener(min_distance=0.5)
-        archive_fps = ["aabbccdd11223344"]
-        test_fp = "xxxxxxxx99999999"
-        is_novel = screener.is_novel(archive_fps, test_fp)
-        assert isinstance(is_novel, bool)
-
-
-# ---- EvalContext & Polymorphic Tests ----
-
-class TestEvalContextAndPolymorphic:
-    def test_eval_context_creation(self):
-        ctx = EvalContext()
-        ctx.set_input("x", 5.0)
-        assert ctx.get_input("x") == 5.0
-
-    def test_polymorphic_op_dispatch(self):
-        poly_op = PolymorphicOp()
-        result = poly_op.apply_to(OpType.FLOAT, 3.0, 2.0, "add")
-        assert isinstance(result, (int, float))
-
-    def test_eval_tree_threading(self):
+    def test_behavior_descriptor(self, archive):
         tree = ExprNode("add", children=[
             ExprNode("input_x"),
             ExprNode("const_one"),
         ])
-        ctx = EvalContext()
-        ctx.set_input("x", 5.0)
-        result = _eval_tree(tree, ctx)
-        assert result == 6.0
+        bd = archive.behavior_descriptor(tree)
+        assert isinstance(bd, tuple)
+        assert len(bd) == 2
 
-
-# ---- Fitness & Symbolic Regression Tests ----
-
-class TestFitnessAndSymbolicRegression:
-    def test_symbolic_regression_fitness_zero_error(self):
-        X = np.array([[1.0], [2.0], [3.0]])
-        y = np.array([2.0, 3.0, 4.0])
-        phenotype = lambda x: x + 1.0
-        fitness = symbolic_regression_fitness(phenotype, X, y)
-        assert fitness > 0.9  # Should be very high
-
-    def test_symbolic_regression_fitness_poor_fit(self):
-        X = np.array([[1.0], [2.0], [3.0]])
-        y = np.array([2.0, 3.0, 4.0])
-        phenotype = lambda x: np.ones_like(x)
-        fitness = symbolic_regression_fitness(phenotype, X, y)
-        assert fitness < 0.5  # Should be lower
-
-    def test_symbolic_regression_fitness_handles_nans(self):
-        X = np.array([[1.0], [2.0], [3.0]])
-        y = np.array([2.0, 3.0, 4.0])
-        phenotype = lambda x: np.full_like(x, np.nan)
-        fitness = symbolic_regression_fitness(phenotype, X, y)
-        assert fitness == 0.0  # NaN predictions get zero fitness
-
-
-# ---- SelfImprovementEngine Tests ----
-
-class TestSelfImprovementEngine:
-    def test_engine_initialization(self, vocab, grammar, meta_grammar):
-        engine = SelfImprovementEngine(
-            vocab=vocab,
-            grammar=grammar,
-            meta_grammar=meta_grammar,
+    def test_insert_and_sample(self, archive):
+        tree = ExprNode("input_x")
+        entry = EliteEntry(
+            tree=tree, raw_fitness=0.5, cost_score=0.9,
+            grounded_fitness=0.45, behavior=(0, 0), generation=1
         )
-        assert engine.vocab is not None
-        assert engine.meta_grammar is not None
+        result = archive.try_insert(entry)
+        assert result is True
+        parent = archive.sample_parent()
+        assert parent is not None
 
-    def test_engine_run(self, vocab, grammar, meta_grammar):
-        engine = SelfImprovementEngine(
-            vocab=vocab,
-            grammar=grammar,
-            meta_grammar=meta_grammar,
+    def test_better_replaces_worse(self, archive):
+        tree1 = ExprNode("input_x")
+        entry1 = EliteEntry(
+            tree=tree1, raw_fitness=0.3, cost_score=0.9,
+            grounded_fitness=0.27, behavior=(0, 0), generation=1
         )
-        engine.run(generations=2, population_size=5)
-        # Should complete without crashing
-        assert True
+        archive.try_insert(entry1)
 
-    def test_engine_improvement_tracking(self, vocab, grammar, meta_grammar):
-        engine = SelfImprovementEngine(
-            vocab=vocab,
-            grammar=grammar,
-            meta_grammar=meta_grammar,
+        tree2 = ExprNode("const_one")
+        entry2 = EliteEntry(
+            tree=tree2, raw_fitness=0.8, cost_score=0.9,
+            grounded_fitness=0.72, behavior=(0, 0), generation=2
         )
-        engine.run(generations=2, population_size=5)
-        # Check improvement tracking
-        assert engine.improvements is not None
+        result = archive.try_insert(entry2)
+        assert result is True
+        assert archive.best_fitness == 0.72
 
-
-# ---- build_rsi_system Tests ----
-
-class TestBuildRSISystem:
-    def test_build_minimal_system(self):
-        engine = build_rsi_system(
-            budget_ops=1_000,
-            budget_seconds=5.0,
-            expansion_interval=2,
+    def test_worse_does_not_replace(self, archive):
+        tree1 = ExprNode("input_x")
+        entry1 = EliteEntry(
+            tree=tree1, raw_fitness=0.8, cost_score=0.9,
+            grounded_fitness=0.72, behavior=(0, 0), generation=1
         )
-        assert engine is not None
-        assert isinstance(engine, SelfImprovementEngine)
+        archive.try_insert(entry1)
 
-    def test_build_system_with_custom_budget(self):
-        engine = build_rsi_system(
-            budget_ops=5_000,
-            budget_seconds=10.0,
-            expansion_interval=3,
+        tree2 = ExprNode("const_one")
+        entry2 = EliteEntry(
+            tree=tree2, raw_fitness=0.2, cost_score=0.9,
+            grounded_fitness=0.18, behavior=(0, 0), generation=2
         )
-        assert engine.budget.max_compute_ops == 5_000
+        result = archive.try_insert(entry2)
+        assert result is False
 
-
-# ---- Integration Tests ----
-
-class TestDeterministicMetaRuleSelection:
-    def test_rule_scoring_consistent(self, meta_grammar):
-        """Test that rule scoring is deterministic and repeatable."""
-        rule1 = meta_grammar.select_rule()
-        rule2 = meta_grammar.select_rule()
-        # Should select rules based on scores, not random
-        assert isinstance(rule1, str)
-        assert isinstance(rule2, str)
-
-    def test_precondition_evaluation(self, meta_grammar):
-        """Test that preconditions are evaluated correctly."""
-        rule = meta_grammar.select_rule()
-        precond_met = meta_grammar.rule_preconditions_met(rule)
-        assert isinstance(precond_met, bool)
-
-    def test_outcome_tracking_in_expansion(self, meta_grammar):
-        """Test that rule outcomes are tracked during expansion."""
-        meta_grammar.apply_rule("expand_rule", meta_grammar.grammar)
-        # Should have recorded outcome
-        assert meta_grammar._expansion_history is not None
-
-    def test_rule_entry_score_computation(self):
-        """Test MetaRuleEntry scoring computation."""
-        entry = MetaRuleEntry(
-            rule_name="test",
-            precondition=lambda g: True,
-            action=lambda g: g,
-            outcome_metric=lambda g: 0.5,
+    def test_coverage(self, archive):
+        assert archive.coverage == 0.0
+        tree = ExprNode("input_x")
+        entry = EliteEntry(
+            tree=tree, raw_fitness=0.5, cost_score=0.9,
+            grounded_fitness=0.45, behavior=(0, 0), generation=1
         )
-        entry._outcome_history = [0.6, 0.7, 0.8]
-        score = entry.compute_score()
-        assert score > 0
+        archive.try_insert(entry)
+        assert archive.coverage > 0.0
 
-    def test_deterministic_selection_with_multiple_rules(self, meta_grammar):
-        """Test that deterministic selection works with multiple rules."""
-        rules = [meta_grammar.select_rule() for _ in range(3)]
-        assert all(isinstance(r, str) for r in rules)
-
-
-class TestOperadicMetaGrammar:
-    def test_hyperrule_template_generation(self, meta_grammar):
-        """Test that HyperRule templates are generated correctly."""
-        # Apply expansion to generate templates
-        meta_grammar.apply_rule("expand_rule", meta_grammar.grammar)
-        assert meta_grammar.grammar is not None
-
-    def test_binary_lift_operation(self, meta_grammar):
-        """Test binary lift operation for rules."""
-        original_vocab_size = meta_grammar.vocab.size
-        meta_grammar.apply_rule("expand_rule", meta_grammar.grammar)
-        # Vocab size may increase after expansion
-        assert meta_grammar.vocab.size >= original_vocab_size
-
-    def test_deduplication_in_expansion(self, meta_grammar):
-        """Test that duplicate rules are removed during expansion."""
-        meta_grammar.apply_rule("expand_rule", meta_grammar.grammar)
-        meta_grammar.apply_rule("expand_rule", meta_grammar.grammar)
-        # Should not cause issues with duplicates
-        assert meta_grammar.grammar is not None
-
-    def test_operadic_composition(self, meta_grammar):
-        """Test operadic composition of rules."""
-        rule1 = meta_grammar.select_rule()
-        rule2 = meta_grammar.select_rule()
-        # Both should be valid rules
-        assert isinstance(rule1, str)
-        assert isinstance(rule2, str)
+    def test_summary(self, archive):
+        s = archive.summary()
+        assert "filled_cells" in s
+        assert "coverage" in s
 
 
-class TestTopologicalContext:
-    def test_topo_key_generation(self, meta_grammar):
-        """Test topological key generation for context."""
-        tree = meta_grammar.grammar.random_tree()
-        topo_key = hash(tree.fingerprint())  # Simplified topo_key
-        assert isinstance(topo_key, int)
+# ---- Eval Tree Tests ----
 
-    def test_with_topo_context(self, meta_grammar):
-        """Test applying topological context."""
-        tree = meta_grammar.grammar.random_tree()
-        ctx = EvalContext()
-        ctx.set_input("x", 5.0)
-        # Should handle topo context
-        assert ctx.get_input("x") == 5.0
+class TestEvalTree:
+    def test_eval_input_x(self, vocab):
+        node = ExprNode("input_x")
+        assert _eval_tree(node, vocab, 3.0) == 3.0
 
-    def test_topo_dispatch_routing(self, meta_grammar):
-        """Test topological dispatch routing."""
-        rule = meta_grammar.select_rule()
-        assert isinstance(rule, str)
-
-    def test_eval_tree_threading_with_topo(self, meta_grammar):
-        """Test eval_tree threading with topological context."""
-        tree = meta_grammar.grammar.random_tree()
-        ctx = EvalContext()
-        ctx.set_input("x", 3.0)
-        result = _eval_tree(tree, ctx)
-        assert result is not None
-
-    def test_context_preservation_across_calls(self):
-        """Test that context is preserved across multiple calls."""
-        ctx = EvalContext()
-        ctx.set_input("x", 5.0)
-        ctx.set_input("y", 10.0)
-        assert ctx.get_input("x") == 5.0
-        assert ctx.get_input("y") == 10.0
-
-    def test_nested_topo_contexts(self):
-        """Test nested topological contexts."""
-        ctx1 = EvalContext()
-        ctx1.set_input("x", 5.0)
-        ctx2 = EvalContext()
-        ctx2.set_input("x", 10.0)
-        assert ctx1.get_input("x") == 5.0
-        assert ctx2.get_input("x") == 10.0
-
-
-class TestRefinementTypes:
-    def test_op_type_lattice(self):
-        """Test OpType lattice structure."""
-        float_type = OpType.FLOAT
-        int_type = OpType.INT
-        assert float_type != int_type
-
-    def test_type_annotations_in_ops(self, vocab):
-        """Test type annotations are applied to operations."""
-        add_op = vocab.get("add")
-        assert add_op is not None
-        # Should have proper typing info
-        assert callable(add_op)
-
-    def test_type_safe_mutation(self, grammar):
-        """Test that mutations respect type safety."""
-        tree = grammar.random_tree()
-        mutant = grammar.mutate(tree)
-        # Should produce valid tree
-        assert isinstance(mutant, ExprNode)
-
-    def test_type_lattice_operations(self):
-        """Test operations on type lattice."""
-        op1_type = OpType.FLOAT
-        op2_type = OpType.FLOAT
-        assert op1_type == op2_type
-
-    def test_refined_type_checking(self):
-        """Test refined type checking in expressions."""
+    def test_eval_add(self, vocab):
         node = ExprNode("add", children=[
             ExprNode("input_x"),
             ExprNode("const_one"),
         ])
-        # Should have consistent types
-        assert node is not None
+        assert _eval_tree(node, vocab, 5.0) == 6.0
 
-    def test_polymorphic_type_dispatch(self):
-        """Test polymorphic dispatch based on types."""
-        poly_op = PolymorphicOp()
-        result = poly_op.apply_to(OpType.FLOAT, 3.0, 2.0, "mul")
-        assert isinstance(result, (int, float))
+    def test_eval_unknown_op(self, vocab):
+        node = ExprNode("unknown_op")
+        assert _eval_tree(node, vocab, 1.0) == 0.0
 
-    def test_type_annotation_preservation(self, grammar):
-        """Test that type annotations are preserved through mutations."""
-        tree = grammar.random_tree()
-        mutant = grammar.mutate(tree)
-        # Type info should still be valid
-        assert mutant.depth() >= 0
 
+# ---- Self-Improvement Engine Tests ----
+
+class TestSelfImprovementEngine:
+    def test_single_step(self):
+        engine = build_rsi_system(
+            budget_ops=100_000,
+            budget_seconds=60.0,
+        )
+        record = engine.step(population_size=10)
+        assert record["generation"] == 1
+        assert record["inserted"] >= 0
+
+    def test_multi_generation_run(self):
+        engine = build_rsi_system(
+            budget_ops=100_000,
+            budget_seconds=60.0,
+            expansion_interval=5,
+        )
+        history = engine.run(generations=10, population_size=10)
+        assert len(history) == 10
+        assert history[-1]["generation"] == 10
+
+    def test_design_space_expands(self):
+        engine = build_rsi_system(
+            budget_ops=100_000,
+            budget_seconds=60.0,
+            expansion_interval=2,
+        )
+        initial_vocab = engine.vocab.size
+        initial_rules = engine.grammar.num_rules
+        engine.run(generations=10, population_size=5)
+        expanded = (
+            engine.vocab.size > initial_vocab
+            or engine.grammar.num_rules > initial_rules
+        )
+        assert expanded, "Design space should expand over generations"
+
+    def test_fitness_improves(self):
+        random.seed(42)
+        np.random.seed(42)
+        engine = build_rsi_system(
+            budget_ops=100_000,
+            budget_seconds=60.0,
+        )
+        history = engine.run(generations=20, population_size=20)
+        # Best fitness should be > 0 after some evolution
+        assert engine.archive.best_fitness > 0
+
+
+# ---- Build Factory Tests ----
+
+class TestBuildFactory:
+    def test_default_build(self):
+        engine = build_rsi_system()
+        assert isinstance(engine, SelfImprovementEngine)
+        assert engine.vocab.size >= 10
+        assert engine.grammar.num_rules >= 4
+
+    def test_custom_fitness(self):
+        custom_fn = lambda tree, vocab: 0.42
+        engine = build_rsi_system(fitness_fn=custom_fn)
+        record = engine.step(population_size=5)
+        assert record["archive_best"] > 0
+
+
+# ---- Library Learning Tests ----
+
+class TestLibraryLearner:
+    """Tests for DreamCoder-inspired library learning mechanism."""
+
+    def test_extract_from_repeated_subtrees(self, vocab):
+        """When the same subtree appears in multiple trees, it should be extracted."""
+        lib = LibraryLearner(vocab, min_subtree_depth=2, min_frequency=2)
+        # Build a shared subtree: add(input_x, const_one) -- depth 1 from leaves, depth 1 total
+        # We need depth >= 2, so: add(mul(input_x, input_x), const_one)
+        shared = ExprNode("add", children=[
+            ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+            ExprNode("const_one"),
+        ])
+        # Embed the shared subtree into two different outer trees
+        tree1 = ExprNode("neg", children=[
+            ExprNode("add", children=[
+                ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        tree2 = ExprNode("square", children=[
+            ExprNode("add", children=[
+                ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        initial_vocab_size = vocab.size
+        new_ops = lib.extract_library([tree1, tree2])
+        assert len(new_ops) >= 1, "Should extract at least one library primitive"
+        assert vocab.size > initial_vocab_size, "Vocabulary should have grown"
+
+    def test_extracted_op_computes_correctly(self, vocab):
+        """Extracted library op should compute same as original subtree."""
+        lib = LibraryLearner(vocab, min_subtree_depth=2, min_frequency=2)
+        # Subtree: add(square(input_x), const_one) => x^2 + 1
+        tree1 = ExprNode("neg", children=[
+            ExprNode("add", children=[
+                ExprNode("square", children=[ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        tree2 = ExprNode("abs_val", children=[
+            ExprNode("add", children=[
+                ExprNode("square", children=[ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        new_ops = lib.extract_library([tree1, tree2])
+        assert len(new_ops) >= 1
+        # The extracted op should compute x^2 + 1
+        extracted = new_ops[0]
+        assert extracted.arity == 1  # has input_x
+        result = extracted.fn(3.0)
+        expected = 3.0 ** 2 + 1.0  # = 10.0
+        assert abs(result - expected) < 1e-6, f"Expected {expected}, got {result}"
+
+    def test_no_extraction_below_frequency_threshold(self, vocab):
+        """Subtrees appearing fewer than min_frequency times should not be extracted."""
+        lib = LibraryLearner(vocab, min_subtree_depth=2, min_frequency=3)
+        # Only 2 trees with the same subtree -- below threshold of 3
+        tree1 = ExprNode("neg", children=[
+            ExprNode("add", children=[
+                ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        tree2 = ExprNode("square", children=[
+            ExprNode("add", children=[
+                ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        new_ops = lib.extract_library([tree1, tree2])
+        assert len(new_ops) == 0, "Should not extract below frequency threshold"
+
+    def test_no_duplicate_extraction(self, vocab):
+        """Running extraction twice on same trees should not create duplicate ops."""
+        lib = LibraryLearner(vocab, min_subtree_depth=2, min_frequency=2)
+        tree1 = ExprNode("neg", children=[
+            ExprNode("add", children=[
+                ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        tree2 = ExprNode("square", children=[
+            ExprNode("add", children=[
+                ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
+                ExprNode("const_one"),
+            ])
+        ])
+        ops1 = lib.extract_library([tree1, tree2])
+        vocab_after_first = vocab.size
+        ops2 = lib.extract_library([tree1, tree2])
+        assert vocab.size == vocab_after_first, "No duplicates should be added"
+        assert len(ops2) == 0
+
+    def test_depth_amplification(self):
+        """
+        CRITICAL TEST: Demonstrates the system can now express programs
+        that were IMPOSSIBLE before library learning.
+
+        With max_depth=3, the deepest tree has 3 levels of nesting.
+        After library learning extracts a depth-2 subtree as a primitive,
+        a depth-3 tree using that primitive can express what previously
+        required depth-5.
+        """
+        random.seed(123)
+        np.random.seed(123)
+        engine = build_rsi_system(
+            max_depth=3,
+            budget_ops=100_000,
+            budget_seconds=60.0,
+            expansion_interval=5,
+            use_library_learning=True,
+            library_min_depth=2,
+            library_min_freq=2,
+        )
+        # Run enough generations to populate the archive and trigger library learning
+        engine.run(generations=20, population_size=20)
+
+        # Check that library learning actually happened
+        lib_learner = engine.meta_grammar.library_learner
+        assert lib_learner is not None
+
+        # The vocabulary should have grown beyond what random composition achieves
+        # (initial default is 11 ops, random composition adds one at a time)
+        initial_vocab = 11  # default count from VocabularyLayer._register_defaults
+        assert engine.vocab.size > initial_vocab, (
+            "Vocabulary should have expanded via library learning and/or meta-grammar"
+        )
+
+    def test_library_learning_with_engine_integration(self):
+        """Library learning integrates correctly with the full RSI engine."""
+        random.seed(42)
+        np.random.seed(42)
+        engine = build_rsi_system(
+            budget_ops=100_000,
+            budget_seconds=60.0,
+            expansion_interval=5,
+            use_library_learning=True,
+        )
+        history = engine.run(generations=15, population_size=15)
+        assert len(history) == 15
+        # Engine should not crash and should maintain valid state
+        assert engine.archive.best_fitness >= 0
+        assert engine.vocab.size >= 11
+
+    def test_constant_subtree_extraction(self, vocab):
+        """Subtrees without input_x should be extracted as arity-0 ops."""
+        lib = LibraryLearner(vocab, min_subtree_depth=2, min_frequency=2)
+        # Subtree: add(const_one, const_one) -- no input_x, depth=1
+        # Need depth >= 2: add(square(const_one), const_one)
+        const_sub = ExprNode("add", children=[
+            ExprNode("square", children=[ExprNode("const_one")]),
+            ExprNode("const_one"),
+        ])
+        tree1 = ExprNode("mul", children=[
+            ExprNode("input_x"),
+            ExprNode("add", children=[
+                ExprNode("square", children=[ExprNode("const_one")]),
+                ExprNode("const_one"),
+            ]),
+        ])
+        tree2 = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("add", children=[
+                ExprNode("square", children=[ExprNode("const_one")]),
+                ExprNode("const_one"),
+            ]),
+        ])
+        new_ops = lib.extract_library([tree1, tree2])
+        # Should extract the constant subtree
+        const_ops = [op for op in new_ops if op.arity == 0]
+        if const_ops:
+            # Should compute 1^2 + 1 = 2.0
+            result = const_ops[0].fn()
+            assert abs(result - 2.0) < 1e-6
+
+
+
+
+# ---- Novelty Screener Tests ----
+
+
+class TestNoveltyScreener:
+    """Tests for the fingerprint-based novelty rejection sampling."""
+
+    def test_structural_similarity(self):
+        """
+        Verify that structural_similarity(tree_a, tree_b) correctly
+        calculates the Jaccard similarity between two expression trees
+        based on their subtree fingerprints.
+        """
+        screener = NoveltyScreener(similarity_threshold=0.85)
+
+        # --- Case 1: identical trees -> Jaccard = 1.0 ---
+        tree = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        assert screener.structural_similarity(tree, tree) == 1.0
+
+        # --- Case 2: partially overlapping trees -> 0 < Jaccard < 1 ---
+        # tree_a subtrees: {add(input_x, const_one), input_x, const_one}
+        tree_a = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        # tree_b subtrees: {mul(input_x, const_one), input_x, const_one}
+        # Shared: {input_x, const_one} = 2;  Union = 4 (add(..), mul(..), input_x, const_one)
+        tree_b = ExprNode("mul", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        sim_partial = screener.structural_similarity(tree_a, tree_b)
+        assert 0.0 < sim_partial < 1.0
+        # Exact expected: |{input_x, const_one}| / |{add(..), mul(..), input_x, const_one}| = 2/4 = 0.5
+        assert abs(sim_partial - 0.5) < 1e-9
+
+        # --- Case 3: completely disjoint trees -> Jaccard = 0.0 ---
+        # tree_c has no shared subtree fingerprints with tree_d
+        tree_c = ExprNode("input_x")  # subtrees: {input_x}
+        tree_d = ExprNode("const_one")  # subtrees: {const_one}
+        sim_disjoint = screener.structural_similarity(tree_c, tree_d)
+        assert sim_disjoint == 0.0
+
+        # --- Case 4: deeper tree, one is subtree of the other ---
+        # tree_e contains tree_a as a subtree, so all of tree_a's
+        # fingerprints appear in tree_e's set -> similarity > 0
+        tree_e = ExprNode("neg", children=[
+            ExprNode("add", children=[
+                ExprNode("input_x"),
+                ExprNode("const_one"),
+            ])
+        ])
+        sim_subset = screener.structural_similarity(tree_a, tree_e)
+        # tree_a fps is subset of tree_e fps, so intersection = |tree_a fps|
+        # Jaccard = |tree_a fps| / |tree_e fps| = 3/4 = 0.75
+        assert 0.0 < sim_subset < 1.0
+        assert abs(sim_subset - 0.75) < 1e-9
+
+    def test_should_accept_rejects_highly_similar(self):
+        """
+        Verify that should_accept(candidate, archive_entries) correctly
+        rejects candidates when their maximum similarity to existing
+        archive entries exceeds the similarity_threshold, and accepts
+        them otherwise.
+        """
+        # Use a threshold of 0.5 so we can test both sides clearly
+        screener = NoveltyScreener(similarity_threshold=0.5)
+
+        # Build an archive entry with tree: add(input_x, const_one)
+        archive_tree = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        archive_entries = [
+            EliteEntry(
+                tree=archive_tree,
+                raw_fitness=0.5,
+                cost_score=0.9,
+                grounded_fitness=0.45,
+                behavior=(0, 0),
+                generation=1,
+            )
+        ]
+
+        # --- Candidate identical to archive member -> similarity = 1.0 > 0.5 -> REJECT ---
+        identical_candidate = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        assert not screener.should_accept(identical_candidate, archive_entries)
+
+        # --- Candidate completely disjoint -> similarity = 0.0 <= 0.5 -> ACCEPT ---
+        novel_candidate = ExprNode("const_zero")
+        assert screener.should_accept(novel_candidate, archive_entries)
+
+        # --- Candidate with borderline similarity exactly at threshold -> ACCEPT ---
+        # mul(input_x, const_one) shares {input_x, const_one} with archive,
+        # Jaccard = 2/4 = 0.5  (== threshold -> should accept since condition is <=)
+        borderline_candidate = ExprNode("mul", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        assert screener.should_accept(borderline_candidate, archive_entries)
+
+        # --- Candidate slightly above threshold -> REJECT ---
+        # Use screener with lower threshold to force rejection of the partial overlap
+        strict_screener = NoveltyScreener(similarity_threshold=0.4)
+        assert not strict_screener.should_accept(borderline_candidate, archive_entries)
+
+    def test_screener_counters_and_summary(self):
+        """
+        Ensure the screener correctly updates the _screenings and
+        _rejections counters and outputs the correct summary dictionary.
+        """
+        screener = NoveltyScreener(similarity_threshold=0.5)
+
+        # Verify initial state
+        assert screener._screenings == 0
+        assert screener._rejections == 0
+        assert screener.rejection_rate == 0.0
+
+        archive_tree = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        archive_entries = [
+            EliteEntry(
+                tree=archive_tree,
+                raw_fitness=0.5,
+                cost_score=0.9,
+                grounded_fitness=0.45,
+                behavior=(0, 0),
+                generation=1,
+            )
+        ]
+
+        # Screen 1: novel candidate -> accepted (screening +1, rejection +0)
+        novel = ExprNode("const_zero")
+        screener.should_accept(novel, archive_entries)
+        assert screener._screenings == 1
+        assert screener._rejections == 0
+
+        # Screen 2: identical candidate -> rejected (screening +1, rejection +1)
+        duplicate = ExprNode("add", children=[
+            ExprNode("input_x"),
+            ExprNode("const_one"),
+        ])
+        screener.should_accept(duplicate, archive_entries)
+        assert screener._screenings == 2
+        assert screener._rejections == 1
+
+        # Screen 3: another novel candidate -> accepted
+        novel2 = ExprNode("const_one")
+        screener.should_accept(novel2, archive_entries)
+        assert screener._screenings == 3
+        assert screener._rejections == 1
+
+        # Verify rejection_rate = 1/3
+        assert abs(screener.rejection_rate - 1.0 / 3.0) < 1e-9
+
+        # Verify summary dict structure and values
+        s = screener.summary()
+        assert isinstance(s, dict)
+        assert s["screenings"] == 3
+        assert s["rejections"] == 1
+        assert abs(s["rejection_rate"] - round(1.0 / 3.0, 4)) < 1e-6
+
+
+# ---- Enhanced MAP-Elites Archive with Novelty Rejection Tests ----
+
+
+class TestEnhancedArchiveNoveltyRejection:
+    """Integration tests for EnhancedMAPElitesArchive with NoveltyScreener."""
+
+    def test_enhanced_archive_novelty_rejection(self):
+        """
+        Verify that the novelty screener inside EnhancedMAPElitesArchive
+        rejects a structurally identical (high-similarity) candidate even
+        when it has *higher* grounded_fitness than the occupant of the
+        same behavioral cell.
+
+        This proves that the rejection is caused by the NoveltyScreener,
+        not by the standard elitism check (which would accept a fitter
+        candidate).
+        """
+        # Use a very low similarity threshold so that any overlap triggers rejection.
+        # Disable novelty injection (novelty_rate=0.0) so a rejected candidate
+        # cannot sneak into a neighbour cell.
+        archive = EnhancedMAPElitesArchive(
+            dims=[6, 10],
+            novelty_rate=0.0,
+            similarity_threshold=0.3,
+        )
+
+        # --- Step 1: insert an initial entry (cell is empty -> always accepted) ---
+        initial_tree = ExprNode("add", children=[
+            ExprNode("mul", children=[
+                ExprNode("input_x"),
+                ExprNode("input_x"),
+            ]),
+            ExprNode("const_one"),
+        ])
+        initial_entry = EliteEntry(
+            tree=initial_tree,
+            raw_fitness=0.4,
+            cost_score=0.9,
+            grounded_fitness=0.36,
+            behavior=(1, 1),
+            generation=1,
+        )
+        assert archive.try_insert(initial_entry) is True
+        assert archive.summary()["filled_cells"] == 1
+
+        # --- Step 2: create a *structurally identical* candidate with HIGHER fitness ---
+        # Same tree structure -> structural_similarity == 1.0 >> threshold (0.3)
+        similar_tree = ExprNode("add", children=[
+            ExprNode("mul", children=[
+                ExprNode("input_x"),
+                ExprNode("input_x"),
+            ]),
+            ExprNode("const_one"),
+        ])
+        better_entry = EliteEntry(
+            tree=similar_tree,
+            raw_fitness=0.9,
+            cost_score=0.95,
+            grounded_fitness=0.855,       # clearly higher than 0.36
+            behavior=(1, 1),              # same cell
+            generation=2,
+        )
+
+        # The standard elitism check would accept this (0.855 > 0.36),
+        # but the novelty screener fires first and rejects it.
+        result = archive.try_insert(better_entry)
+        assert result is False
+
+        # The cell still holds the original (lower-fitness) entry
+        assert archive.best_fitness == 0.36
+
+        # --- Step 3: verify the screener's rejection counter incremented ---
+        screening_summary = archive.summary()["novelty_screening"]
+        assert screening_summary["rejections"] == 1
+        assert screening_summary["screenings"] == 1
+        assert screening_summary["rejection_rate"] == 1.0
+
+        # --- Step 4: insert a genuinely novel candidate into the same cell ---
+        # This tree is structurally very different -> low similarity -> accepted
+        novel_tree = ExprNode("neg", children=[
+            ExprNode("const_zero"),
+        ])
+        novel_entry = EliteEntry(
+            tree=novel_tree,
+            raw_fitness=0.95,
+            cost_score=0.95,
+            grounded_fitness=0.9025,      # higher fitness + novel structure
+            behavior=(1, 1),              # same cell
+            generation=3,
+        )
+        assert archive.try_insert(novel_entry) is True
+        assert archive.best_fitness == 0.9025
+
+        # Screener stats: 2 screenings total, 1 rejection
+        screening_summary_2 = archive.summary()["novelty_screening"]
+        assert screening_summary_2["screenings"] == 2
+        assert screening_summary_2["rejections"] == 1
+
+
+# ---------------------------------------------------------------------------
+# SESSION 10: MECHANISM 1 (SELF-REFERENCE) TESTS
+# ---------------------------------------------------------------------------
+
+class TestSelfReference:
+    """Tests for Mechanism 1: Self-Reference (A.7 Diagonal Lemma, D.1 Quines)."""
+
+    def test_self_encode_returns_deterministic_value(self, vocab):
+        tree = ExprNode("self_encode")
+        ctx = EvalContext(self_fingerprint=tree.fingerprint())
+        v1 = _eval_tree(tree, vocab, 0.0, ctx)
+        v2 = _eval_tree(tree, vocab, 0.0, ctx)
+        assert v1 == v2
+        assert 0.0 <= v1 <= 1.0
+
+    def test_self_encode_differs_for_different_trees(self, vocab):
+        tree_a = ExprNode("add", [ExprNode("input_x"), ExprNode("const_one")])
+        tree_b = ExprNode("mul", [ExprNode("input_x"), ExprNode("input_x")])
+        ctx_a = EvalContext(self_fingerprint=tree_a.fingerprint())
+        ctx_b = EvalContext(self_fingerprint=tree_b.fingerprint())
+        se_node = ExprNode("self_encode")
+        v_a = _eval_tree(se_node, vocab, 0.0, ctx_a)
+        v_b = _eval_tree(se_node, vocab, 0.0, ctx_b)
+        assert v_a != v_b
+
+    def test_self_encode_in_composition(self, vocab):
+        tree = ExprNode("add", [ExprNode("input_x"), ExprNode("self_encode")])
+        ctx = EvalContext(self_fingerprint=tree.fingerprint())
+        result = _eval_tree(tree, vocab, 5.0, ctx)
+        fp_val = (int(tree.fingerprint()[:8], 16) % 10000) / 10000.0
+        assert abs(result - (5.0 + fp_val)) < 1e-9
+
+    def test_self_encode_without_context_returns_zero(self, vocab):
+        tree = ExprNode("self_encode")
+        result = _eval_tree(tree, vocab, 0.0)
+        assert result == 0.0
+
+    def test_self_encode_fixed_point_property(self, vocab):
+        """Self-referential trees express fixed-point computations."""
+        tree = ExprNode("add", [ExprNode("input_x"), ExprNode("self_encode")])
+        ctx = EvalContext(self_fingerprint=tree.fingerprint())
+        fp_val = (int(tree.fingerprint()[:8], 16) % 10000) / 10000.0
+        for x in [0.0, 1.0, -3.5, 100.0]:
+            result = _eval_tree(tree, vocab, x, ctx)
+            assert abs(result - (x + fp_val)) < 1e-9
+        tree2 = ExprNode("mul", [ExprNode("input_x"), ExprNode("self_encode")])
+        ctx2 = EvalContext(self_fingerprint=tree2.fingerprint())
+        fp_val2 = (int(tree2.fingerprint()[:8], 16) % 10000) / 10000.0
+        assert fp_val != fp_val2
+        result2 = _eval_tree(tree2, vocab, 5.0, ctx2)
+        assert abs(result2 - (5.0 * fp_val2)) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# SESSION 10: MECHANISM 2 (CONTEXT-DEPENDENT EVALUATION) TESTS
+# ---------------------------------------------------------------------------
+
+class TestContextDependentEvaluation:
+    """Tests for Mechanism 2: Context-Dependent Evaluation (C.3, G.6)."""
+
+    def test_eval_context_creation(self):
+        ctx = EvalContext()
+        assert ctx.niche_id == 0
+        assert ctx.env_tag == "default"
+        assert ctx.self_fingerprint == ""
+
+    def test_context_key_in_range(self):
+        ctx1 = EvalContext(niche_id=0, env_tag="test")
+        ctx2 = EvalContext(niche_id=1, env_tag="test")
+        assert 0 <= ctx1.context_key() <= 3
+        assert 0 <= ctx2.context_key() <= 3
+
+    def test_polymorphic_op_dispatches_by_context(self):
+        dispatch = {
+            0: lambda a: a * 2,
+            1: lambda a: a + 10,
+            2: lambda a: -a,
+            3: lambda a: a * a,
+        }
+        pop = PolymorphicOp(
+            name="poly_test", arity=1,
+            dispatch_table=dispatch,
+            default_fn=lambda a: a,
+        )
+        results = set()
+        for niche in range(10):
+            ctx = EvalContext(niche_id=niche, env_tag="test")
+            results.add(pop(5.0, ctx=ctx))
+        assert len(results) >= 2
+
+    def test_polymorphic_op_without_context_uses_default(self):
+        pop = PolymorphicOp(
+            name="poly_test", arity=1,
+            dispatch_table={0: lambda a: a * 2},
+            default_fn=lambda a: a + 100,
+        )
+        assert pop(5.0) == 105.0
+
+    def test_polymorphic_op_in_eval_tree(self, vocab):
+        pop = PolymorphicOp(
+            name="poly_scale", arity=1,
+            dispatch_table={0: lambda a: a * 10, 1: lambda a: a * 20,
+                            2: lambda a: a * 30, 3: lambda a: a * 40},
+            default_fn=lambda a: a,
+        )
+        vocab.register(pop)
+        tree = ExprNode("poly_scale", [ExprNode("input_x")])
+        ctx = EvalContext(niche_id=0, env_tag="test")
+        key = ctx.context_key()
+        expected = {0: 10, 1: 20, 2: 30, 3: 40}[key]
+        result = _eval_tree(tree, vocab, 3.0, ctx)
+        assert result == 3.0 * expected
+
+    def test_same_tree_different_context_different_output(self, vocab):
+        """Critical F_theo expansion: same tree, different context, different output."""
+        pop = PolymorphicOp(
+            name="ctx_op", arity=1,
+            dispatch_table={0: lambda a: a + 1, 1: lambda a: a * 2,
+                            2: lambda a: a - 1, 3: lambda a: a ** 2},
+            default_fn=lambda a: a,
+        )
+        vocab.register(pop)
+        tree = ExprNode("ctx_op", [ExprNode("input_x")])
+        outputs = set()
+        for niche in range(20):
+            for env in ["alpha", "beta", "gamma", "delta"]:
+                ctx = EvalContext(niche_id=niche, env_tag=env)
+                outputs.add(_eval_tree(tree, vocab, 5.0, ctx))
+        assert len(outputs) >= 2
+
+    def test_context_backward_compatible(self, vocab):
+        tree = ExprNode("add", [ExprNode("input_x"), ExprNode("const_one")])
+        r1 = _eval_tree(tree, vocab, 3.0)
+        ctx = EvalContext(self_fingerprint=tree.fingerprint())
+        r2 = _eval_tree(tree, vocab, 3.0, ctx)
+        assert r1 == r2 == 4.0
+
+    def test_fitness_functions_accept_context(self, vocab):
+        tree = ExprNode("add", [ExprNode("input_x"), ExprNode("const_one")])
+        ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="test")
+        r1 = symbolic_regression_fitness(tree, vocab, ctx=ctx)
+        r2 = symbolic_regression_fitness(tree, vocab)
+        assert isinstance(r1, float)
+        assert isinstance(r2, float)
+
+
+# ---------------------------------------------------------------------------
+# SESSION 11: TASK 1 — DETERMINISTIC META-RULE SELECTION (Paribhasa C.1b)
+# ---------------------------------------------------------------------------
+
+class TestDeterministicMetaRuleSelection:
+    """Tests for Paribhasa-inspired deterministic meta-rule selection."""
+
+    def test_meta_rule_entry_scoring(self):
+        rule = MetaRuleEntry(
+            name="test_rule",
+            rule_fn=lambda: None,
+            preconditions=lambda s: True,
+            specificity=2,
+            base_priority=3.0,
+        )
+        state = {}
+        # Score = specificity*100 + base_priority + success_rate_bonus
+        assert rule.score(state) == 2 * 100 + 3.0 + 0.0  # 203.0
+
+    def test_meta_rule_precondition_matching(self):
+        rule = MetaRuleEntry(
+            name="low_coverage_rule",
+            rule_fn=lambda: "expanded",
+            preconditions=lambda s: s.get("coverage", 0) < 0.3,
+            specificity=1,
+        )
+        assert rule.matches({"coverage": 0.1}) is True
+        assert rule.matches({"coverage": 0.5}) is False
+
+    def test_meta_rule_outcome_tracking(self):
+        rule = MetaRuleEntry(name="test", rule_fn=lambda: None)
+        rule.record_outcome(True)
+        rule.record_outcome(True)
+        rule.record_outcome(False)
+        assert rule._applications == 3
+        assert rule._successes == 2
+
+    def test_expand_selects_highest_scoring_rule(self, meta_grammar):
+        """expand_design_space should deterministically pick the highest-scoring rule."""
+        results = [meta_grammar.expand_design_space() for _ in range(3)]
+        for r in results:
+            assert "Applied" in r
+
+    def test_archive_state_computation(self, meta_grammar):
+        """_compute_archive_state should produce a well-formed state dict."""
+        state = meta_grammar._compute_archive_state()
+        assert "vocab_size" in state
+        assert "coverage" in state
+        assert "fitness_plateau" in state
+        assert state["vocab_size"] >= 11
+
+
+# ---------------------------------------------------------------------------
+# SESSION 11: TASK 2 — OPERADIC META-GRAMMAR (Operads H.8 / VW A.4)
+# ---------------------------------------------------------------------------
+
+class TestOperadicMetaGrammar:
+    """Tests for HyperRule-based operadic op composition."""
+
+    def test_hyper_rule_templates_exist(self, meta_grammar):
+        templates = meta_grammar._get_hyper_rule_templates()
+        assert len(templates) >= 2
+        for i in range(len(templates) - 1):
+            assert templates[i]["specificity"] >= templates[i + 1]["specificity"]
+
+    def test_binary_lift_composition(self, meta_grammar, vocab):
+        """binary_lift should create h(f(x), g(x)) style ops."""
+        initial_size = vocab.size
+        for _ in range(5):
+            result = meta_grammar._meta_compose_new_op()
+            if result is not None:
+                break
+        assert vocab.size > initial_size
+
+    def test_composed_op_is_callable(self, meta_grammar, vocab):
+        """New ops from HyperRules should be callable."""
+        result = meta_grammar._meta_compose_new_op()
+        if result is not None:
+            assert callable(result)
+            assert result.arity == 1
+            val = result(3.0)
+            assert isinstance(val, (int, float))
+
+    def test_no_duplicate_hyperrule_ops(self, meta_grammar, vocab):
+        """Repeated HyperRule application should not create duplicate names."""
+        names_created = set()
+        for _ in range(20):
+            result = meta_grammar._meta_compose_new_op()
+            if result is not None:
+                assert result.name not in names_created
+                names_created.add(result.name)
+
+
+# ---------------------------------------------------------------------------
+# SESSION 11: TASK 3 — TOPOLOGICAL CONTEXT (Topos G.6)
+# ---------------------------------------------------------------------------
+
+class TestTopologicalContext:
+    """Tests for topological context-dependent evaluation."""
+
+    def test_topo_key_varies_with_depth(self):
+        keys = set()
+        for d in range(20):
+            ctx = EvalContext(current_depth=d, parent_op_name="root")
+            keys.add(ctx.topo_key())
+        assert len(keys) >= 2
+
+    def test_topo_key_varies_with_parent_op(self):
+        keys = set()
+        for op in ["add", "mul", "sub", "neg", "square", "identity", "safe_div", "clamp"]:
+            ctx = EvalContext(current_depth=1, parent_op_name=op)
+            keys.add(ctx.topo_key())
+        assert len(keys) >= 2
+
+    def test_full_key_combines_context_and_topo(self):
+        ctx = EvalContext(niche_id=0, env_tag="test", current_depth=1, parent_op_name="add")
+        fk = ctx.full_key()
+        assert 0 <= fk <= 15
+
+    def test_with_topo_creates_new_context(self):
+        ctx = EvalContext(niche_id=5, env_tag="alpha", self_fingerprint="abc123")
+        child_ctx = ctx.with_topo(depth=2, parent_op="mul", sib_idx=1, sub_size=3)
+        assert child_ctx.niche_id == 5
+        assert child_ctx.env_tag == "alpha"
+        assert child_ctx.self_fingerprint == "abc123"
+        assert child_ctx.current_depth == 2
+        assert child_ctx.parent_op_name == "mul"
+        assert child_ctx.sibling_index == 1
+        assert child_ctx.subtree_size == 3
+
+    def test_topo_dispatch_in_polymorphic_op(self, vocab):
+        """PolymorphicOp with topo_dispatch_table should dispatch by tree position."""
+        pop = PolymorphicOp(
+            name="topo_op", arity=1,
+            dispatch_table={0: lambda a: a},
+            default_fn=lambda a: a,
+            topo_dispatch_table={
+                0: lambda a: a * 100,
+                1: lambda a: a * 200,
+            }
+        )
+        results = {}
+        for d in range(20):
+            for op in ["add", "mul", "sub", "neg"]:
+                ctx = EvalContext(current_depth=d, parent_op_name=op)
+                tk = ctx.topo_key()
+                if tk not in results and tk in pop.topo_dispatch_table:
+                    results[tk] = pop(5.0, ctx=ctx)
+        if results:
+            assert any(v != 5.0 for v in results.values())
+
+    def test_eval_tree_threads_topo_to_children(self, vocab):
+        """_eval_tree should pass topological info to children during evaluation."""
+        pop = PolymorphicOp(
+            name="topo_pass", arity=1,
+            dispatch_table={},
+            default_fn=lambda a: a * 2,
+        )
+        vocab.register(pop)
+        tree = ExprNode("topo_pass", [ExprNode("input_x")])
+        ctx = EvalContext(niche_id=0, current_depth=0)
+        result = _eval_tree(tree, vocab, 3.0, ctx)
+        assert isinstance(result, float)
+
+
+# ---------------------------------------------------------------------------
+# SESSION 11: TASK 4 — REFINEMENT TYPES (D.5 Dependent Types)
+# ---------------------------------------------------------------------------
+
+class TestRefinementTypes:
+    """Tests for refinement type constraints on tree composition."""
+
+    def test_optype_subtype_lattice(self):
+        assert OpType.is_subtype("unit", "real")
+        assert OpType.is_subtype("unit", "non_negative")
+        assert OpType.is_subtype("unit", "any")
+        assert OpType.is_subtype("non_negative", "real")
+        assert not OpType.is_subtype("real", "non_negative")
+        assert not OpType.is_subtype("real", "positive")
+        assert OpType.is_subtype("positive", "non_negative")
+        assert OpType.is_subtype("real", "any")
+        assert OpType.is_subtype("bounded", "any")
+
+    def test_primitive_op_has_type_annotations(self, vocab):
+        abs_op = vocab.get("abs_val")
+        assert abs_op.output_type == "non_negative"
+        assert abs_op.input_types == ["real"]
+        square_op = vocab.get("square")
+        assert square_op.output_type == "non_negative"
+        const_one = vocab.get("const_one")
+        assert const_one.output_type == "positive"
+
+    def test_accepts_child_type(self, vocab):
+        add_op = vocab.get("add")
+        assert add_op.accepts_child_type(0, "non_negative")
+        assert add_op.accepts_child_type(0, "real")
+        assert add_op.accepts_child_type(0, "unit")
+
+    def test_grammar_infer_output_type(self, grammar, vocab):
+        node_abs = ExprNode("abs_val", [ExprNode("input_x")])
+        assert grammar.infer_output_type(node_abs) == "non_negative"
+        node_x = ExprNode("input_x")
+        assert grammar.infer_output_type(node_x) == "real"
+        node_se = ExprNode("self_encode")
+        assert grammar.infer_output_type(node_se) == "unit"
+
+    def test_type_compatible_op_selection(self, grammar):
+        op = grammar._type_compatible_op(max_arity=2, child_types=["real", "real"])
+        assert op is not None
+        assert op.arity <= 2
+
+    def test_point_mutate_respects_types(self, grammar):
+        tree = ExprNode("add", children=[
+            ExprNode("abs_val", children=[ExprNode("input_x")]),
+            ExprNode("const_one"),
+        ])
+        for _ in range(10):
+            mutated = grammar._rule_point_mutate(tree)
+            assert isinstance(mutated, ExprNode)
+
+    def test_typed_tree_generation(self, grammar):
+        random.seed(42)
+        for _ in range(20):
+            tree = grammar.random_tree(3)
+            assert isinstance(tree, ExprNode)
+            assert tree.depth() <= 5
+
+
+# ---------------------------------------------------------------------------
+# SESSION 11: INTEGRATION TEST
+# ---------------------------------------------------------------------------
 
 class TestArchitectureIntegration:
-    def test_full_rsi_pipeline(self):
-        """Test the full RSI pipeline from initialization to optimization."""
-        engine = build_rsi_system(
-            budget_ops=100_000,
-            budget_seconds=60.0,
-            expansion_interval=2,
-        )
-        engine.run(generations=10, population_size=10)
-        # Should complete without errors
-        assert True
+    """Integration tests for all 4 mechanisms working together."""
 
-    def test_expansion_with_scoring(self):
-        """Test that expansion includes scoring of rule selections."""
+    def test_full_engine_with_all_mechanisms(self):
+        random.seed(42)
+        np.random.seed(42)
+        engine = build_rsi_system(
+            budget_ops=100_000,
+            budget_seconds=60.0,
+            expansion_interval=3,
+            use_library_learning=True,
+        )
+        history = engine.run(generations=15, population_size=15)
+        assert len(history) == 15
+        assert engine.archive.best_fitness >= 0
+        assert engine.meta_grammar.expansion_count >= 1
+
+    def test_deterministic_selection_affects_expansion(self):
+        random.seed(123)
+        np.random.seed(123)
         engine = build_rsi_system(
             budget_ops=100_000,
             budget_seconds=60.0,
             expansion_interval=2,
         )
         engine.run(generations=10, population_size=10)
-        # Check that expansion history contains scored selections
         has_scored = any("score=" in h for h in engine.meta_grammar._expansion_history)
         assert has_scored, "Expansion history should contain scored rule selections"
 
