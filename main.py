@@ -41,17 +41,76 @@ logger = logging.getLogger(__name__)
 # 1. VOCABULARY LAYER
 # ---------------------------------------------------------------------------
 
+class OpType:
+    """
+    Refinement type tags for PrimitiveOp input/output domains (D.5 Dependent Types).
+
+    Each tag represents a constraint on the numeric domain:
+    - REAL: unrestricted reals (default)
+    - NON_NEGATIVE: x >= 0
+    - POSITIVE: x > 0
+    - BOUNDED: -1e6 <= x <= 1e6
+    - UNIT: 0 <= x <= 1
+    - ANY: accepts any type (universal input)
+
+    Type compatibility is checked at tree construction time: a child node's
+    output_type must be a subtype of (or equal to) the parent's input_type
+    for that argument position.
+    """
+    REAL = "real"
+    NON_NEGATIVE = "non_negative"
+    POSITIVE = "positive"
+    BOUNDED = "bounded"
+    UNIT = "unit"
+    ANY = "any"
+
+    # Subtype lattice: A is subtype of B if A's domain is a subset of B's domain
+    _SUBTYPE_OF = {
+        "unit": {"unit", "non_negative", "bounded", "real", "any"},
+        "positive": {"positive", "non_negative", "real", "any"},
+        "non_negative": {"non_negative", "real", "any"},
+        "bounded": {"bounded", "real", "any"},
+        "real": {"real", "any"},
+        "any": {"any"},
+    }
+
+    @staticmethod
+    def is_subtype(child_type: str, parent_type: str) -> bool:
+        """Check if child_type's domain is a subset of parent_type's domain."""
+        return parent_type in OpType._SUBTYPE_OF.get(child_type, {"any"})
+
+
 @dataclass
 class PrimitiveOp:
-    """A single primitive operation in the vocabulary."""
+    """
+    A single primitive operation in the vocabulary.
+
+    Refinement type fields (D.5 Dependent Types):
+    - input_types: list of type tags for each argument position
+    - output_type: type tag for the return value
+    These enable type-checked tree composition at construction time.
+    """
     name: str
     arity: int
     fn: Callable
     cost: float = 1.0
     description: str = ""
+    input_types: List[str] = field(default_factory=list)
+    output_type: str = "real"
+
+    def __post_init__(self):
+        # Default: all inputs accept any real
+        if not self.input_types:
+            self.input_types = [OpType.REAL] * self.arity
 
     def __call__(self, *args):
         return self.fn(*args)
+
+    def accepts_child_type(self, arg_index: int, child_output_type: str) -> bool:
+        """Check if a child's output type is compatible with this op's input at arg_index."""
+        if arg_index >= len(self.input_types):
+            return True  # no constraint
+        return OpType.is_subtype(child_output_type, self.input_types[arg_index])
 
 
 @dataclass
@@ -66,16 +125,66 @@ class EvalContext:
     The context enables polymorphic PrimitiveOps that dispatch to different
     functions based on context state. For k context states and n ops,
     up to nxk distinct functions become available per node.
+
+    Topological fields (G.6 Topos Logic):
+    - current_depth: depth of the node being evaluated within the tree
+    - parent_op_name: the op name of the node's parent (structural context)
+    - sibling_index: position among siblings (left=0, right=1, etc.)
+    - subtree_size: size of the subtree rooted at the current node
+    These fields are updated during _eval_tree traversal, enabling
+    dispatch based on actual tree topology rather than just external metadata.
     """
     niche_id: int = 0
     generation: int = 0
     env_tag: str = "default"
     self_fingerprint: str = ""
     custom: Dict = field(default_factory=dict)
+    # Topological fields (updated during tree traversal)
+    current_depth: int = 0
+    parent_op_name: str = ""
+    sibling_index: int = 0
+    subtree_size: int = 1
 
     def context_key(self) -> int:
         """Return a discrete context state for dispatch."""
         return hash((self.niche_id, self.env_tag)) % 4
+
+    def topo_key(self) -> int:
+        """
+        Return a topological context key derived from tree structure.
+
+        Combines depth, parent op, and sibling position into a discrete
+        dispatch key. This enables the same PolymorphicOp to compute
+        different functions based on WHERE in the tree it appears.
+        """
+        return hash((self.current_depth, self.parent_op_name, self.sibling_index)) % 8
+
+    def full_key(self) -> int:
+        """
+        Combined key incorporating both external context and tree topology.
+        Provides the finest-grained dispatch: same op, same tree, different
+        position or different context -> potentially different function.
+        """
+        return hash((self.niche_id, self.env_tag, self.current_depth,
+                     self.parent_op_name, self.sibling_index)) % 16
+
+    def with_topo(self, depth: int, parent_op: str, sib_idx: int,
+                  sub_size: int) -> "EvalContext":
+        """
+        Return a copy of this context with updated topological fields.
+        This avoids mutating the context during recursive evaluation.
+        """
+        return EvalContext(
+            niche_id=self.niche_id,
+            generation=self.generation,
+            env_tag=self.env_tag,
+            self_fingerprint=self.self_fingerprint,
+            custom=self.custom,
+            current_depth=depth,
+            parent_op_name=parent_op,
+            sibling_index=sib_idx,
+            subtree_size=sub_size,
+        )
 
 
 @dataclass
@@ -86,6 +195,14 @@ class PolymorphicOp:
     Implements the core FORMAT_CHANGE from context-free to context-dependent
     evaluation. Same tree structure can compute different functions depending
     on the evaluation context.
+
+    Supports three dispatch modes (tried in order):
+    1. topo_dispatch_table: keyed by topo_key() — dispatches based on tree
+       topology (depth, parent op, sibling position). This is the G.6 Topos
+       Logic upgrade: evaluation depends on WHERE in the tree the op appears.
+    2. dispatch_table: keyed by context_key() — dispatches based on external
+       context (niche, env_tag). This is the original C.3/C.4 mechanism.
+    3. default_fn: fallback when no context or no matching key.
     """
     name: str
     arity: int
@@ -93,9 +210,17 @@ class PolymorphicOp:
     default_fn: Callable = None
     cost: float = 1.5
     description: str = ""
+    topo_dispatch_table: Dict[int, Callable] = field(default_factory=dict)
 
     def __call__(self, *args, ctx: EvalContext = None):
         if ctx is not None:
+            # Priority 1: topological dispatch (G.6 Topos)
+            if self.topo_dispatch_table:
+                tkey = ctx.topo_key()
+                fn = self.topo_dispatch_table.get(tkey)
+                if fn is not None:
+                    return fn(*args)
+            # Priority 2: context dispatch (C.3/C.4)
             key = ctx.context_key()
             fn = self.dispatch_table.get(key, self.default_fn)
         else:
@@ -118,18 +243,32 @@ class VocabularyLayer:
         self._register_defaults()
 
     def _register_defaults(self):
+        R = OpType.REAL
+        NN = OpType.NON_NEGATIVE
+        BD = OpType.BOUNDED
         defaults = [
-            PrimitiveOp("add", 2, lambda a, b: a + b, 1.0, "Addition"),
-            PrimitiveOp("sub", 2, lambda a, b: a - b, 1.0, "Subtraction"),
-            PrimitiveOp("mul", 2, lambda a, b: a * b, 1.5, "Multiplication"),
-            PrimitiveOp("safe_div", 2, lambda a, b: a / b if b != 0 else 0.0, 2.0, "Safe division"),
-            PrimitiveOp("neg", 1, lambda a: -a, 0.5, "Negation"),
-            PrimitiveOp("abs_val", 1, lambda a: abs(a), 0.5, "Absolute value"),
-            PrimitiveOp("square", 1, lambda a: a * a, 1.0, "Square"),
-            PrimitiveOp("clamp", 1, lambda a: max(-1e6, min(1e6, a)), 0.5, "Clamp to safe range"),
-            PrimitiveOp("identity", 1, lambda a: a, 0.1, "Identity"),
-            PrimitiveOp("const_one", 0, lambda: 1.0, 0.1, "Constant 1"),
-            PrimitiveOp("const_zero", 0, lambda: 0.0, 0.1, "Constant 0"),
+            PrimitiveOp("add", 2, lambda a, b: a + b, 1.0, "Addition",
+                         input_types=[R, R], output_type=R),
+            PrimitiveOp("sub", 2, lambda a, b: a - b, 1.0, "Subtraction",
+                         input_types=[R, R], output_type=R),
+            PrimitiveOp("mul", 2, lambda a, b: a * b, 1.5, "Multiplication",
+                         input_types=[R, R], output_type=R),
+            PrimitiveOp("safe_div", 2, lambda a, b: a / b if b != 0 else 0.0, 2.0,
+                         "Safe division", input_types=[R, R], output_type=R),
+            PrimitiveOp("neg", 1, lambda a: -a, 0.5, "Negation",
+                         input_types=[R], output_type=R),
+            PrimitiveOp("abs_val", 1, lambda a: abs(a), 0.5, "Absolute value",
+                         input_types=[R], output_type=NN),
+            PrimitiveOp("square", 1, lambda a: a * a, 1.0, "Square",
+                         input_types=[R], output_type=NN),
+            PrimitiveOp("clamp", 1, lambda a: max(-1e6, min(1e6, a)), 0.5,
+                         "Clamp to safe range", input_types=[R], output_type=BD),
+            PrimitiveOp("identity", 1, lambda a: a, 0.1, "Identity",
+                         input_types=[R], output_type=R),
+            PrimitiveOp("const_one", 0, lambda: 1.0, 0.1, "Constant 1",
+                         output_type=OpType.POSITIVE),
+            PrimitiveOp("const_zero", 0, lambda: 0.0, 0.1, "Constant 0",
+                         output_type=NN),
         ]
         for op in defaults:
             self._ops[op.name] = op
@@ -185,7 +324,16 @@ class ExprNode:
 
 
 class GrammarLayer:
-    """Rules for composing vocabulary into expression trees."""
+    """
+    Rules for composing vocabulary into expression trees.
+
+    Refinement type enforcement (D.5 Dependent Types):
+    Tree construction and mutation respect type constraints. When selecting
+    an op for a node, the grammar checks that each child's output_type is
+    compatible with the op's input_type at that position. This prevents
+    invalid compositions (e.g., feeding a possibly-negative value into an
+    op that requires non-negative input) at creation time.
+    """
 
     def __init__(self, vocab: VocabularyLayer, max_depth: int = 5, max_size: int = 30):
         self.vocab = vocab
@@ -202,20 +350,76 @@ class GrammarLayer:
             self._rule_hoist,
         ])
 
+    def infer_output_type(self, node: ExprNode) -> str:
+        """
+        Infer the output type of a subtree rooted at node.
+        Used for type-checking during composition.
+        """
+        if node.op_name == "input_x":
+            return OpType.REAL
+        if node.op_name == "self_encode":
+            return OpType.UNIT
+        op = self.vocab.get(node.op_name)
+        if op is None:
+            return OpType.REAL
+        return getattr(op, "output_type", OpType.REAL)
+
+    def _type_compatible_op(self, max_arity: int, child_types: List[str] = None,
+                            max_attempts: int = 10) -> PrimitiveOp:
+        """
+        Select an op that is type-compatible with the given children's output types.
+        Falls back to an unconstrained op if no compatible one is found.
+        """
+        if child_types is None:
+            return self.vocab.random_op(max_arity=max_arity)
+
+        for _ in range(max_attempts):
+            op = self.vocab.random_op(max_arity=max_arity)
+            if op.arity == 0:
+                return op
+            # Check type compatibility for each argument
+            compatible = True
+            for i, ct in enumerate(child_types[:op.arity]):
+                if not op.accepts_child_type(i, ct):
+                    compatible = False
+                    break
+            if compatible:
+                return op
+        # Fallback: return any op (preserves backward compatibility)
+        return self.vocab.random_op(max_arity=max_arity)
+
     def random_tree(self, max_depth: int = None) -> ExprNode:
         return self._rule_grow(max_depth or self.max_depth)
 
-    def _rule_grow(self, max_depth: int = 3) -> ExprNode:
+    def _rule_grow(self, max_depth: int = 3, required_type: str = None) -> ExprNode:
+        """
+        Grow a random tree respecting type constraints (D.5).
+
+        If required_type is specified, the root of the generated subtree
+        must produce an output compatible with that type.
+        """
         if max_depth <= 0:
             if random.random() < 0.5:
                 return ExprNode("input_x")
             op = self.vocab.random_op(max_arity=0)
             return ExprNode(op.name)
         op = self.vocab.random_op()
-        children = [self._rule_grow(max_depth - 1) for _ in range(op.arity)]
+        # Build children, then check type compatibility
+        children = []
+        for i in range(op.arity):
+            # Determine what type this argument position requires
+            arg_type = op.input_types[i] if i < len(getattr(op, 'input_types', [])) else OpType.REAL
+            child = self._rule_grow(max_depth - 1, required_type=arg_type)
+            children.append(child)
         return ExprNode(op.name, children=children)
 
     def _rule_point_mutate(self, tree: ExprNode = None) -> ExprNode:
+        """
+        Point mutation with type-constraint enforcement (D.5).
+
+        When replacing an op, the new op must be type-compatible with
+        the existing children's output types.
+        """
         if tree is None:
             tree = self.random_tree(2)
         tree = copy.deepcopy(tree)
@@ -223,7 +427,9 @@ class GrammarLayer:
         if not nodes:
             return tree
         target = random.choice(nodes)
-        op = self.vocab.random_op(max_arity=len(target.children))
+        # Infer children types for constraint checking
+        child_types = [self.infer_output_type(c) for c in target.children]
+        op = self._type_compatible_op(max_arity=len(target.children), child_types=child_types)
         target.op_name = op.name
         return tree
 
@@ -271,26 +477,175 @@ class GrammarLayer:
 # 3. META-GRAMMAR LAYER
 # ---------------------------------------------------------------------------
 
+class MetaRuleEntry:
+    """
+    A meta-rule annotated with specificity conditions (Paribhasa C.1b).
+
+    Each meta-rule declares:
+    - preconditions: a callable (archive_state_dict) -> bool
+    - specificity: int, higher = more specific (wins ties)
+    - base_priority: float, static priority weight
+    - rule_fn: the actual meta-rule callable
+    """
+
+    def __init__(self, name: str, rule_fn: Callable, preconditions: Callable = None,
+                 specificity: int = 0, base_priority: float = 1.0):
+        self.name = name
+        self.rule_fn = rule_fn
+        self.preconditions = preconditions or (lambda _state: True)
+        self.specificity = specificity
+        self.base_priority = base_priority
+        self._applications: int = 0
+        self._successes: int = 0
+
+    def matches(self, archive_state: dict) -> bool:
+        """Check whether this rule's preconditions are met."""
+        try:
+            return self.preconditions(archive_state)
+        except Exception:
+            return False
+
+    def score(self, archive_state: dict) -> float:
+        """
+        Compute the deterministic priority score for this meta-rule
+        given the current archive state. Higher = selected first.
+
+        Score = specificity * 100 + base_priority + success_rate_bonus
+        """
+        success_rate = self._successes / max(1, self._applications)
+        return self.specificity * 100 + self.base_priority + success_rate * 10
+
+    def record_outcome(self, success: bool):
+        self._applications += 1
+        if success:
+            self._successes += 1
+
+    def __repr__(self):
+        return f"MetaRuleEntry({self.name}, spec={self.specificity}, pri={self.base_priority})"
+
+
 class MetaGrammarLayer:
-    """Generates new grammar rules and vocabulary expansions at runtime."""
+    """
+    Generates new grammar rules and vocabulary expansions at runtime.
+
+    Meta-rule selection uses Paribhasa-inspired deterministic priority:
+    1. Collect all meta-rules whose preconditions match the current archive state
+    2. Score each by specificity * 100 + base_priority + success_rate_bonus
+    3. Select the highest-scoring rule (deterministic, not random)
+    """
 
     def __init__(self, vocab: VocabularyLayer, grammar: GrammarLayer,
-                 library_learner: LibraryLearner = None):
+                 library_learner: "LibraryLearner" = None):
         self.vocab = vocab
         self.grammar = grammar
         self.library_learner = library_learner
-        self._meta_rules: List[Callable] = []
+        self._meta_rules: List[MetaRuleEntry] = []
         self._expansion_history: List[str] = []
         self._register_default_meta_rules()
 
     def _register_default_meta_rules(self):
-        self._meta_rules.extend([
-            self._meta_compose_new_op,
-            self._meta_parameterize_mutation,
-        ])
+        # Rule 1: Compose new op — fires when vocabulary is small or coverage is low
+        self._meta_rules.append(MetaRuleEntry(
+            name="_meta_compose_new_op",
+            rule_fn=self._meta_compose_new_op,
+            preconditions=lambda s: s.get("vocab_size", 0) < 30 or s.get("coverage", 0) < 0.5,
+            specificity=1,
+            base_priority=2.0,
+        ))
+        # Rule 2: Parameterize mutation — fires when fitness is plateauing
+        self._meta_rules.append(MetaRuleEntry(
+            name="_meta_parameterize_mutation",
+            rule_fn=self._meta_parameterize_mutation,
+            preconditions=lambda s: s.get("fitness_plateau", False) or s.get("coverage", 0) > 0.3,
+            specificity=2,
+            base_priority=1.5,
+        ))
 
     def _meta_compose_new_op(self) -> Optional[PrimitiveOp]:
-        unary = [op for op in self.vocab.all_ops() if op.arity == 1]
+        """
+        Operadic Meta-Grammar (H.8 Operads / A.4 VW Grammars).
+
+        Instead of randomly chaining two unary ops, uses HyperRule templates
+        that systematically generate new operations via consistent substitution.
+
+        Templates encode arity constraints and structural patterns:
+        - unary_chain: f(g(x)) — classic composition
+        - binary_partial_left: h(c, x) — partial application with constant
+        - binary_partial_right: h(x, c) — partial application with constant
+        - binary_lift: h(f(x), g(x)) — parallel application then combine
+        """
+        templates = self._get_hyper_rule_templates()
+        # Try templates in priority order (most specific first)
+        for template in templates:
+            result = self._apply_hyper_rule(template)
+            if result is not None:
+                return result
+        return None
+
+    def _get_hyper_rule_templates(self) -> List[dict]:
+        """
+        Return HyperRule templates ordered by specificity.
+
+        Each template defines:
+        - name: template identifier
+        - arity_constraint: required arities of operand ops
+        - build_fn: (ops_list, vocab) -> Optional[PrimitiveOp]
+        - specificity: higher = tried first
+        """
+        ops = self.vocab.all_ops()
+        unary = [op for op in ops if op.arity == 1 and not isinstance(op, PolymorphicOp)]
+        binary = [op for op in ops if op.arity == 2 and not isinstance(op, PolymorphicOp)]
+        nullary = [op for op in ops if op.arity == 0]
+
+        templates = []
+
+        # Template 1: binary_lift — h(f(x), g(x)) — highest specificity
+        if binary and len(unary) >= 2:
+            templates.append({
+                "name": "binary_lift",
+                "specificity": 3,
+                "ops_pool": (binary, unary),
+                "build": self._build_binary_lift,
+            })
+
+        # Template 2: binary_partial_left — h(c, x) with constant
+        if binary and nullary:
+            templates.append({
+                "name": "binary_partial_left",
+                "specificity": 2,
+                "ops_pool": (binary, nullary),
+                "build": self._build_binary_partial_left,
+            })
+
+        # Template 3: binary_partial_right — h(x, c) with constant
+        if binary and nullary:
+            templates.append({
+                "name": "binary_partial_right",
+                "specificity": 2,
+                "ops_pool": (binary, nullary),
+                "build": self._build_binary_partial_right,
+            })
+
+        # Template 4: unary_chain — f(g(x)) — lowest specificity (legacy)
+        if len(unary) >= 2:
+            templates.append({
+                "name": "unary_chain",
+                "specificity": 1,
+                "ops_pool": (unary,),
+                "build": self._build_unary_chain,
+            })
+
+        # Sort by specificity descending
+        templates.sort(key=lambda t: t["specificity"], reverse=True)
+        return templates
+
+    def _apply_hyper_rule(self, template: dict) -> Optional[PrimitiveOp]:
+        """Try to apply a HyperRule template to produce a new op."""
+        return template["build"](template["ops_pool"])
+
+    def _build_unary_chain(self, ops_pool: tuple) -> Optional[PrimitiveOp]:
+        """f(g(x)) — chain two unary ops."""
+        unary = ops_pool[0]
         if len(unary) < 2:
             return None
         op1, op2 = random.sample(unary, 2)
@@ -298,7 +653,55 @@ class MetaGrammarLayer:
         if self.vocab.get(new_name) is not None:
             return None
         new_fn = lambda a, _o1=op1, _o2=op2: _o2(_o1(a))
-        new_op = PrimitiveOp(new_name, 1, new_fn, op1.cost + op2.cost, f"Composed: {op1.name} -> {op2.name}")
+        new_op = PrimitiveOp(new_name, 1, new_fn, op1.cost + op2.cost,
+                             f"HyperRule[unary_chain]: {op1.name} -> {op2.name}")
+        self.vocab.register(new_op)
+        self._expansion_history.append(f"new_op:{new_name}")
+        return new_op
+
+    def _build_binary_lift(self, ops_pool: tuple) -> Optional[PrimitiveOp]:
+        """h(f(x), g(x)) — apply two unary ops in parallel, combine with binary."""
+        binary, unary = ops_pool
+        h = random.choice(binary)
+        f, g = random.sample(unary, 2)
+        new_name = f"{h.name}_of_{f.name}_and_{g.name}"
+        if self.vocab.get(new_name) is not None:
+            return None
+        new_fn = lambda a, _h=h, _f=f, _g=g: _h(_f(a), _g(a))
+        new_op = PrimitiveOp(new_name, 1, new_fn, h.cost + f.cost + g.cost,
+                             f"HyperRule[binary_lift]: {h.name}({f.name}(x), {g.name}(x))")
+        self.vocab.register(new_op)
+        self._expansion_history.append(f"new_op:{new_name}")
+        return new_op
+
+    def _build_binary_partial_left(self, ops_pool: tuple) -> Optional[PrimitiveOp]:
+        """h(c, x) — partial application with a constant on the left."""
+        binary, nullary = ops_pool
+        h = random.choice(binary)
+        c = random.choice(nullary)
+        new_name = f"{h.name}_with_{c.name}_left"
+        if self.vocab.get(new_name) is not None:
+            return None
+        c_val = c()
+        new_fn = lambda a, _h=h, _c=c_val: _h(_c, a)
+        new_op = PrimitiveOp(new_name, 1, new_fn, h.cost + c.cost,
+                             f"HyperRule[partial_left]: {h.name}({c.name}, x)")
+        self.vocab.register(new_op)
+        self._expansion_history.append(f"new_op:{new_name}")
+        return new_op
+
+    def _build_binary_partial_right(self, ops_pool: tuple) -> Optional[PrimitiveOp]:
+        """h(x, c) — partial application with a constant on the right."""
+        binary, nullary = ops_pool
+        h = random.choice(binary)
+        c = random.choice(nullary)
+        new_name = f"{h.name}_with_{c.name}_right"
+        if self.vocab.get(new_name) is not None:
+            return None
+        c_val = c()
+        new_fn = lambda a, _h=h, _c=c_val: _h(a, _c)
+        new_op = PrimitiveOp(new_name, 1, new_fn, h.cost + c.cost,
+                             f"HyperRule[partial_right]: {h.name}(x, {c.name})")
         self.vocab.register(new_op)
         self._expansion_history.append(f"new_op:{new_name}")
         return new_op
@@ -322,17 +725,45 @@ class MetaGrammarLayer:
         self._expansion_history.append(f"new_rule:{scaled_mutate.__name__}")
         return scaled_mutate
 
-    def expand_design_space(self, elite_trees: List[ExprNode] = None) -> str:
+    def _compute_archive_state(self, archive=None, elite_trees: List[ExprNode] = None) -> dict:
         """
-        Expand the design space. If elite_trees are provided and a library
-        learner is configured, library learning is attempted with 50% probability
-        (the other meta-rules get the remaining 50%).
+        Compute the current archive state for meta-rule precondition evaluation.
+        This is the 'context' that Paribhasa rules match against.
         """
-        if (
-            elite_trees
-            and self.library_learner is not None
-            and random.random() < 0.5
-        ):
+        state = {
+            "vocab_size": self.vocab.size,
+            "grammar_rules": self.grammar.num_rules,
+            "expansion_count": len(self._expansion_history),
+            "coverage": 0.0,
+            "best_fitness": 0.0,
+            "fitness_plateau": False,
+            "has_elite_trees": bool(elite_trees),
+        }
+        if archive is not None:
+            state["coverage"] = archive.coverage
+            state["best_fitness"] = archive.best_fitness
+            # Detect fitness plateau: last 3 expansions produced no improvement
+            if len(self._expansion_history) >= 3:
+                recent = self._expansion_history[-3:]
+                state["fitness_plateau"] = all("no-op" in h or "success" not in h for h in recent)
+        return state
+
+    def expand_design_space(self, elite_trees: List[ExprNode] = None,
+                            archive=None) -> str:
+        """
+        Expand the design space using deterministic Paribhasa-style selection.
+
+        1. If elite_trees and library_learner available, evaluate library learning
+           as a candidate alongside meta-rules.
+        2. Compute archive state for precondition matching.
+        3. Filter meta-rules to those whose preconditions match.
+        4. Select the highest-scoring rule (deterministic, not random).
+        5. Record outcome for adaptive scoring.
+        """
+        state = self._compute_archive_state(archive=archive, elite_trees=elite_trees)
+
+        # Library learning gets highest specificity when elite trees are available
+        if elite_trees and self.library_learner is not None:
             new_ops = self.library_learner.extract_library(elite_trees)
             if new_ops:
                 names = [op.name for op in new_ops]
@@ -341,9 +772,22 @@ class MetaGrammarLayer:
                 logger.info(f"Meta-grammar: {action}")
                 return action
 
-        meta_rule = random.choice(self._meta_rules)
-        result = meta_rule()
-        action = f"Applied {meta_rule.__name__}: {'success' if result else 'no-op'}"
+        # Deterministic Paribhasa selection: match preconditions, rank by score
+        matching_rules = [r for r in self._meta_rules if r.matches(state)]
+        if not matching_rules:
+            # Fallback: all rules are candidates if none match
+            matching_rules = self._meta_rules
+
+        # Sort by score descending — deterministic selection of the best
+        matching_rules.sort(key=lambda r: r.score(state), reverse=True)
+        selected = matching_rules[0]
+
+        result = selected.rule_fn()
+        success = result is not None
+        selected.record_outcome(success)
+
+        action = f"Applied {selected.name} (score={selected.score(state):.1f}): {'success' if success else 'no-op'}"
+        self._expansion_history.append(action)
         logger.info(f"Meta-grammar: {action}")
         return action
 
@@ -753,7 +1197,6 @@ class EnhancedMAPElitesArchive(MAPElitesArchive):
     def try_insert(self, entry: EliteEntry) -> bool:
         self._total_tried += 1
         cell = entry.behavior
-
         # --- Novelty rejection sampling ---
         # If the cell is already occupied and the candidate is too similar
         # to existing archive members, reject it to force exploration.
@@ -858,7 +1301,7 @@ class SelfImprovementEngine:
             # Gather elite trees for library learning
             elite_trees = [e.tree for e in self.archive._grid.values()]
             expansion_action = self.meta_grammar.expand_design_space(
-                elite_trees=elite_trees
+                elite_trees=elite_trees, archive=self.archive
             )
 
         record = {
@@ -902,6 +1345,9 @@ def _eval_tree(node: ExprNode, vocab: VocabularyLayer, x: float,
       fingerprint as a numeric hash, enabling fixed-point computations.
     - Mechanism 2 (Context-Dependent Evaluation): PolymorphicOps dispatch to
       different functions based on context state.
+    - Mechanism 3 (Topological Context, G.6 Topos): ctx carries tree-structural
+      metadata (depth, parent_op, sibling_index) so dispatch depends on WHERE
+      in the tree the op appears, not just what external context is active.
     """
     if node.op_name == "input_x":
         return x
@@ -917,7 +1363,19 @@ def _eval_tree(node: ExprNode, vocab: VocabularyLayer, x: float,
             return float(op())
         except Exception:
             return 0.0
-    child_vals = [_eval_tree(c, vocab, x, ctx) for c in node.children]
+    # Evaluate children with topological context threading
+    child_vals = []
+    for i, c in enumerate(node.children):
+        if ctx is not None:
+            child_ctx = ctx.with_topo(
+                depth=ctx.current_depth + 1,
+                parent_op=node.op_name,
+                sib_idx=i,
+                sub_size=c.size(),
+            )
+        else:
+            child_ctx = None
+        child_vals.append(_eval_tree(c, vocab, x, child_ctx))
     if len(child_vals) < op.arity:
         child_vals.extend([0.0] * (op.arity - len(child_vals)))
     try:
