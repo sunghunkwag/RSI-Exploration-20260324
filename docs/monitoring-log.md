@@ -34,3 +34,25 @@
 - Parameter Symmetry Breaking (2502.05300) — DEEPER_READ: symmetry dynamics as mechanism for hierarchical representation formation
 - Representation theory and Langlands duality (2510.06990) — DEEPER_READ: pure math on representation theory
 - Cluster structures and tropical duality (2411.11633) — DEEPER_READ: representation theory with duality perspective
+
+## 2026-03-26 (V4/V5 Verification Session)
+- arxiv scanned: 22, relevant: 7
+- GitHub scanned: 12, relevant: 3
+- Cumulative: arxiv 79, GitHub 37
+
+### arxiv highlights
+- Darwin Gödel Machine v2 (2505.22954, updated 2026-03-12) — DEEPER_READ: SWE-bench 20%→50%. Self-modifying coding agents via archive + foundation model mutation. CAGE: content modification, not format change. No formal transition structure.
+- Gödel Agent (2410.04444) — RELEVANT: LLM-driven self-referential recursive improvement. Prompt-driven behavioral modification, not representational. V3: EXTERNAL_INJECTION.
+- DéjàQ (2601.01931) — RELEVANT: MAP-Elites for evolving diverse RL training problems. LLM-guided mutators. Joint problem-model co-evolution. No representation format change.
+- Dominated Novelty Search (2502.00593) — RELEVANT: replaces grid-based archive with dynamic fitness transformations. Search procedure change, not representation change.
+- OpenEvolve/AlphaEvolve (open-source, multiple repos) — RELEVANT: MAP-Elites population + LLM mutation for algorithm discovery. Program database uses island model. No grammar evolution.
+- ShinkaEvolve (SakanaAI) — RELEVANT: multi-island evolution with LLM mutation operators. Patch-based modification. No representation expansion.
+- Duality viewpoint of noninvertible symmetry (2502.20435) — DEEPER_READ: noninvertible symmetry protected topological phases via duality. Condensed matter, not directly transplantable.
+
+### GitHub highlights
+- OpenEvolve (algorithmicsuperintelligence/openevolve) — RELEVANT: open-source AlphaEvolve with MAP-Elites. >10k stars. Uses island-based population model. No runtime representation expansion.
+- ShinkaEvolve (SakanaAI/ShinkaEvolve) — RELEVANT: LLM-driven program evolution framework. EVOLVE-BLOCK markers for mutable regions. No grammar evolution or design space expansion.
+- awesome-open-ended (jennyzzt/awesome-open-ended) — RELEVANT: curated collection of open-ended AI research. Good reference list.
+
+### CAGE diagnostic summary
+All 2026-03-26 scans: NO papers/repos claiming runtime representation FORMAT expansion. Darwin Gödel Machine and Gödel Agent modify code content within fixed agent architecture. DéjàQ evolves problem distributions, not solution representations. Quality-diversity field remains focused on search efficiency within fixed representation formats.
