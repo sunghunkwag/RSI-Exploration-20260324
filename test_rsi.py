@@ -1,15 +1,15 @@
 """
-RSI 검증 테스트 #2: 어려운 타겟에서의 재귀적 자가 개선
-=====================================================
+RSI Verification Test #2: Recursive Self-Improvement on Hard Targets
+=====================================================================
 
-이전 테스트에서 x²+2x+1은 기본 op으로 이미 해결 가능하여
-자가 개선 이점이 드러나지 않았음.
+In the previous test, x^2+2x+1 was already solvable with base ops,
+so the self-improvement advantage was not apparent.
 
-이번 테스트:
-1. 타겟: sin(x) — 기본 op(add, mul, square)으로 정확히 표현 불가
-   → 자가 수정이 Taylor 급수 항을 합성하여 근사해야 함
-2. max_depth=3 — 얌은 트리 강제 → library learning의 depth amplification 필수
-3. 500 generations × 5 seeds × 2 conditions
+This test:
+1. Target: sin(x) -- cannot be exactly represented with base ops (add, mul, square)
+   -> Self-modification must compose Taylor series terms to approximate
+2. max_depth=3 -- forces shallow trees -> library learning's depth amplification required
+3. 500 generations x 5 seeds x 2 conditions
 """
 
 import random
@@ -70,7 +70,7 @@ def run_hard_experiment(seed, generations, pop_size, expansion_interval,
         elites_using_gen = sum(1 for e in elites
                               if _get_tree_ops(e.tree) & generated_ops)
 
-        # 수렴 속도 추적
+        # Track convergence speed
         for thresh in best_at:
             if best_at[thresh] is None and record["archive_best"] >= thresh:
                 best_at[thresh] = gen + 1
@@ -107,23 +107,23 @@ def _get_tree_ops(tree):
 
 def main():
     print("=" * 80)
-    print("  RSI 검증 #2: 어려운 타겟 (sin(x), depth=3)")
+    print("  RSI Verification #2: Hard Target (sin(x), depth=3)")
     print("  Harder Target: sin(x) approximation with shallow trees")
     print("=" * 80)
 
     SEEDS = [42, 123, 456, 789, 1024]
     GENERATIONS = 500
     POP_SIZE = 20
-    MAX_DEPTH = 3  # 얌은 트리 → library learning 필수
+    MAX_DEPTH = 3  # Shallow tree -> library learning required
 
     # ===================================================================
     # Test 1: sin(x) with depth=3
     # ===================================================================
-    print(f"\n▶ Target: sin(x), max_depth={MAX_DEPTH}")
-    print(f"  sin(x)는 add/mul/square로 정확히 표현 불가.")
-    print(f"  depth=3은 Taylor 급수 항을 직접 구성하기에 불충분.")
-    print(f"  → Library learning이 깊은 서브트리를 하나의 op으로 압축하여")
-    print(f"    effective depth를 확장해야 함.\n")
+    print(f"\n>> Target: sin(x), max_depth={MAX_DEPTH}")
+    print(f"  sin(x) cannot be exactly represented with add/mul/square.")
+    print(f"  depth=3 is insufficient to directly construct Taylor series terms.")
+    print(f"  -> Library learning must compress deep subtrees into single ops")
+    print(f"     to expand effective depth.\n")
 
     # Condition A: FROZEN
     print("  Condition A: FROZEN")
@@ -153,9 +153,9 @@ def main():
         modify.append(r)
 
     # ===================================================================
-    # Test 2: sin(x) with depth=5 (control — easier for library learning)
+    # Test 2: sin(x) with depth=5 (control -- easier for library learning)
     # ===================================================================
-    print(f"\n▶ Control: sin(x), max_depth=5")
+    print(f"\n>> Control: sin(x), max_depth=5")
 
     print("  Condition A: FROZEN (depth=5)")
     frozen5 = []
@@ -182,10 +182,10 @@ def main():
         modify5.append(r)
 
     # ===================================================================
-    # 분석
+    # Analysis
     # ===================================================================
     print("\n" + "=" * 80)
-    print("  분석 결과")
+    print("  Analysis Results")
     print("=" * 80)
 
     for test_name, fr, mo, depth in [
@@ -196,31 +196,31 @@ def main():
         mb = [r["final_best"] for r in mo]
         delta = np.mean(mb) - np.mean(fb)
 
-        print(f"\n  ▶ {test_name}")
-        print(f"    FROZEN:      {np.mean(fb):.4f} ± {np.std(fb):.4f}  {fb}")
-        print(f"    SELF-MODIFY: {np.mean(mb):.4f} ± {np.std(mb):.4f}  {mb}")
-        print(f"    Δ = {delta:+.4f}")
+        print(f"\n  >> {test_name}")
+        print(f"    FROZEN:      {np.mean(fb):.4f} +/- {np.std(fb):.4f}  {fb}")
+        print(f"    SELF-MODIFY: {np.mean(mb):.4f} +/- {np.std(mb):.4f}  {mb}")
+        print(f"    Delta = {delta:+.4f}")
 
         if delta > 0.01:
-            print(f"    ✓ 자가 수정이 fitness를 개선함 (+{delta:.4f})")
+            print(f"    [PASS] Self-modification improves fitness (+{delta:.4f})")
         elif delta > 0.001:
-            print(f"    ~ 미미한 개선 (+{delta:.4f})")
+            print(f"    [MARGINAL] Slight improvement (+{delta:.4f})")
         else:
-            print(f"    ✗ 개선 없음 (Δ = {delta:+.4f})")
+            print(f"    [FAIL] No improvement (Delta = {delta:+.4f})")
 
-        # 수렴 속도
-        print(f"\n    수렴 속도:")
+        # Convergence speed
+        print(f"\n    Convergence Speed:")
         for thresh in [0.3, 0.4, 0.5]:
             fr_gen = [r["best_at"].get(thresh, None) for r in fr]
             mo_gen = [r["best_at"].get(thresh, None) for r in mo]
             fr_avg = np.mean([g for g in fr_gen if g is not None]) if any(g is not None for g in fr_gen) else float('inf')
             mo_avg = np.mean([g for g in mo_gen if g is not None]) if any(g is not None for g in mo_gen) else float('inf')
-            print(f"      → {thresh:.1f} fitness: FROZEN={fr_avg:.0f}gen, MODIFY={mo_avg:.0f}gen "
+            print(f"      -> {thresh:.1f} fitness: FROZEN={fr_avg:.0f}gen, MODIFY={mo_avg:.0f}gen "
                   f"(faster by {fr_avg-mo_avg:.0f} gen)")
 
-        # 궤적
-        print(f"\n    Fitness 궤적 (FROZEN vs SELF-MODIFY):")
-        print(f"    {'Gen':>5}  {'FROZEN':>8}  {'MODIFY':>8}  {'Δ':>8}  {'Util%':>6}")
+        # Trajectory
+        print(f"\n    Fitness Trajectory (FROZEN vs SELF-MODIFY):")
+        print(f"    {'Gen':>5}  {'FROZEN':>8}  {'MODIFY':>8}  {'Delta':>8}  {'Util%':>6}")
         fr_traj_avg = {}
         mo_traj_avg = {}
         mo_util_avg = {}
@@ -240,10 +240,10 @@ def main():
                 print(f"    {gen:5d}  {fa:8.4f}  {ma:8.4f}  {ma-fa:+8.4f}  {ua*100:5.1f}%")
 
     # ===================================================================
-    # 최종 판정
+    # Final Verdict
     # ===================================================================
     print("\n" + "=" * 80)
-    print("  최종 판정")
+    print("  Final Verdict")
     print("=" * 80)
 
     d3_delta = np.mean([r["final_best"] for r in modify]) - np.mean([r["final_best"] for r in frozen])
@@ -251,25 +251,25 @@ def main():
     d3_util = np.mean([r["final_util"] for r in modify])
     d5_util = np.mean([r["final_util"] for r in modify5])
 
-    print(f"\n  sin(x) depth=3: Δ = {d3_delta:+.4f}, util = {d3_util*100:.1f}%")
-    print(f"  sin(x) depth=5: Δ = {d5_delta:+.4f}, util = {d5_util*100:.1f}%")
+    print(f"\n  sin(x) depth=3: Delta = {d3_delta:+.4f}, util = {d3_util*100:.1f}%")
+    print(f"  sin(x) depth=5: Delta = {d5_delta:+.4f}, util = {d5_util*100:.1f}%")
 
     if d3_delta > 0.01 or d5_delta > 0.01:
         print(f"\n  VERDICT: RECURSIVE_SELF_IMPROVEMENT_CONFIRMED")
-        print(f"  자가 수정이 어려운 타겟에서 측정 가능한 개선을 제공함.")
+        print(f"  Self-modification provides measurable improvement on hard targets.")
         if d3_delta > d5_delta:
-            print(f"  depth=3에서 효과가 더 큼 → depth amplification이 핵심 메커니즘.")
+            print(f"  Effect is larger at depth=3 -> depth amplification is the key mechanism.")
     elif d3_delta > 0.001 or d5_delta > 0.001:
         print(f"\n  VERDICT: MARGINAL_IMPROVEMENT")
-        print(f"  미미한 개선. 재귀 메커니즘은 작동하지만 효과가 작음.")
+        print(f"  Marginal improvement. Recursive mechanism works but effect is small.")
     else:
         print(f"\n  VERDICT: SELF_MODIFICATION_WITHOUT_IMPROVEMENT")
-        print(f"  어려운 타겟에서도 자가 수정이 개선으로 이어지지 않음.")
-        print(f"  가능한 원인:")
-        print(f"  1. 메타-그래머가 'useful' op을 만들지 못함 (random composition)")
-        print(f"  2. 500 세대가 부족함 (더 긴 실행 필요)")
-        print(f"  3. Library learning의 subtree 추출이 sin 근사에 필요한")
-        print(f"     Taylor 급수 계수를 발견하기 어려움")
+        print(f"  Self-modification does not lead to improvement even on hard targets.")
+        print(f"  Possible causes:")
+        print(f"  1. Meta-grammar fails to create 'useful' ops (random composition)")
+        print(f"  2. 500 generations insufficient (longer runs needed)")
+        print(f"  3. Library learning's subtree extraction struggles to discover")
+        print(f"     Taylor series coefficients needed for sin approximation")
 
 
 if __name__ == "__main__":

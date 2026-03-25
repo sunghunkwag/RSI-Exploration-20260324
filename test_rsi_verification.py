@@ -1,18 +1,18 @@
 """
-RSI (Recursive Self-Improvement) 검증 테스트
-==============================================
+RSI (Recursive Self-Improvement) Verification Test
+====================================================
 
-핵심 질문 3가지:
-1. 시스템이 스스로 새로운 연산/규칙을 생성하는가? (자가 수정)
-2. 그 발견이 더 나은 성능으로 이어지는가? (개선)
-3. 더 나은 성능이 다시 더 나은 발견으로 이어지는가? (재귀)
+Three core questions:
+1. Does the system autonomously generate new operations/rules? (Self-modification)
+2. Do those discoveries lead to better performance? (Improvement)
+3. Does better performance lead to even better discoveries? (Recursion)
 
-테스트 설계:
-- Condition A (FROZEN): 메타-그래머 확장 비활성화 (expansion_interval=999999)
-- Condition B (SELF-MODIFY): 메타-그래머 확장 활성화 (expansion_interval=5)
-- 5 seeds × 2 conditions × 500 generations
-- 측정: fitness trajectory, vocab growth, library extraction rate,
-        new-op utilization rate, recursive loop depth
+Test design:
+- Condition A (FROZEN): Meta-grammar expansion disabled (expansion_interval=999999)
+- Condition B (SELF-MODIFY): Meta-grammar expansion enabled (expansion_interval=5)
+- 5 seeds x 2 conditions x 500 generations
+- Metrics: fitness trajectory, vocab growth, library extraction rate,
+           new-op utilization rate, recursive loop depth
 """
 
 import random
@@ -37,21 +37,21 @@ from main import (
 
 
 def _collect_ops(node, ops_set):
-    """트리에서 사용된 모든 op 이름을 수집."""
+    """Collect all op names used in a tree."""
     ops_set.add(node.op_name)
     for c in node.children:
         _collect_ops(c, ops_set)
 
 
 def _tree_uses_generated_ops(tree, base_ops):
-    """트리가 기본 op 외에 생성된 op을 사용하는지 확인."""
+    """Check if a tree uses any generated ops beyond the base ops."""
     used = set()
     _collect_ops(tree, used)
     return used - base_ops
 
 
 def run_experiment(seed, generations, pop_size, expansion_interval, label):
-    """실험 하나를 실행하고 세부 궤적을 반환."""
+    """Run a single experiment and return detailed trajectory."""
     random.seed(seed)
     np.random.seed(seed)
 
@@ -67,20 +67,20 @@ def run_experiment(seed, generations, pop_size, expansion_interval, label):
         similarity_threshold=0.85,
     )
 
-    # 기본 op 이름 기록 (생성된 op과 구분하기 위해)
+    # Record base op names (to distinguish from generated ops)
     base_ops = {op.name for op in engine.vocab.all_ops()}
 
     trajectory = []
     for gen in range(generations):
         record = engine.step(pop_size)
 
-        # 현재 vocab에서 생성된 op 수
+        # Count generated ops in current vocab
         current_ops = {op.name for op in engine.vocab.all_ops()}
         generated_ops = current_ops - base_ops
         poly_ops = {op.name for op in engine.vocab.all_ops()
                     if isinstance(op, PolymorphicOp)}
 
-        # 엘리트 중 생성된 op을 사용하는 비율
+        # Ratio of elites using generated ops
         elites = list(engine.archive._grid.values())
         elites_using_generated = 0
         elites_using_self_encode = 0
@@ -97,14 +97,14 @@ def run_experiment(seed, generations, pop_size, expansion_interval, label):
 
         n_elites = len(elites)
 
-        # "2차 생성 op" — 생성된 op을 기반으로 다시 생성된 op 탐지
-        # (예: lib_X가 다른 lib_Y를 포함하는 경우 = 재귀적 자가 개선의 증거)
+        # "2nd-generation ops" -- detect ops generated from other generated ops
+        # (e.g., lib_X containing lib_Y = evidence of recursive self-improvement)
         second_gen_ops = 0
         for op_name in generated_ops:
             if op_name.startswith("lib_"):
-                # Library learning으로 추출된 op: 해당 op의 구현이
-                # 다른 generated op을 사용하면 2차 생성
-                pass  # 아래에서 별도 분석
+                # Library-extracted op: if its implementation uses
+                # other generated ops, it's a 2nd-generation op
+                pass  # analyzed separately below
 
         snapshot = {
             "gen": gen + 1,
@@ -123,8 +123,8 @@ def run_experiment(seed, generations, pop_size, expansion_interval, label):
         }
         trajectory.append(snapshot)
 
-    # 최종 분석: 재귀 깊이 측정
-    # 생성된 op이 다른 생성된 op의 트리에 포함되어 있으면 2차 재귀
+    # Final analysis: measure recursion depth
+    # If generated ops appear in trees of other generated ops, it's 2nd-order recursion
     recursion_evidence = analyze_recursion_depth(engine, base_ops)
 
     return {
@@ -138,26 +138,26 @@ def run_experiment(seed, generations, pop_size, expansion_interval, label):
 
 def analyze_recursion_depth(engine, base_ops):
     """
-    재귀적 자가 개선의 깊이를 분석.
+    Analyze the depth of recursive self-improvement.
 
-    깊이 0: 기본 op만 사용
-    깊이 1: 메타-그래머가 기본 op에서 새 op 생성 (1차 생성)
-    깊이 2: 엘리트가 1차 생성 op을 사용 → 더 높은 fitness
-    깊이 3: 높은 fitness 엘리트에서 library learning이 새 패턴 추출 (2차 생성)
-    깊이 4: 2차 생성 op이 더 나은 엘리트에 사용됨 → 재귀 완성
+    Depth 0: Only base ops used
+    Depth 1: Meta-grammar generates new ops from base ops (1st generation)
+    Depth 2: Elites use 1st-gen ops -> higher fitness
+    Depth 3: Library learning extracts new patterns from high-fitness elites (2nd generation)
+    Depth 4: 2nd-gen ops used in even better elites -> recursion complete
     """
     current_ops = {op.name for op in engine.vocab.all_ops()}
     generated_ops = current_ops - base_ops
 
-    # Library-extracted ops (lib_*)와 meta-grammar ops 구분
+    # Distinguish library-extracted ops (lib_*) from meta-grammar ops
     lib_ops = {n for n in generated_ops if n.startswith("lib_")}
     meta_ops = {n for n in generated_ops if not n.startswith("lib_") and not n.startswith("poly_")}
     poly_ops_set = {n for n in generated_ops if n.startswith("poly_")}
 
-    # 깊이 1: 새 op이 생성되었는가?
+    # Depth 1: Were new ops generated?
     depth_1 = len(generated_ops) > 0
 
-    # 깊이 2: 엘리트가 생성된 op을 사용하는가?
+    # Depth 2: Do elites use generated ops?
     elites = list(engine.archive._grid.values())
     elites_with_gen = []
     for e in elites:
@@ -169,9 +169,9 @@ def analyze_recursion_depth(engine, base_ops):
 
     depth_2 = len(elites_with_gen) > 0
 
-    # 깊이 3: library learning이 생성된 op을 포함하는 패턴을 추출했는가?
-    # lib_* op의 이름은 fingerprint이므로 직접 확인 불가 → 간접 확인:
-    # 엘리트 트리에서 lib_* op이 다른 generated op과 함께 사용되면 증거
+    # Depth 3: Did library learning extract patterns containing generated ops?
+    # lib_* op names are fingerprints so we can't check directly -> indirect check:
+    # If lib_* ops are used alongside other generated ops in elite trees, that's evidence
     depth_3_evidence = []
     for e in elites:
         used = set()
@@ -187,7 +187,7 @@ def analyze_recursion_depth(engine, base_ops):
 
     depth_3 = len(depth_3_evidence) > 0
 
-    # 깊이 4: 2차 생성 op을 사용하는 엘리트가 1차만 사용하는 것보다 fitness가 높은가?
+    # Depth 4: Do elites using 2nd-gen ops have higher fitness than those using only 1st-gen?
     fitness_with_lib = [f for f, _ in elites_with_gen if any(
         n.startswith("lib_") for n in _)] if elites_with_gen else []
     fitness_without_lib = [e.grounded_fitness for e in elites
@@ -223,7 +223,7 @@ def _get_tree_ops(tree):
 
 
 def print_trajectory_summary(results, label, milestones=[50, 100, 200, 300, 500]):
-    """궤적 요약 출력."""
+    """Print trajectory summary."""
     print(f"\n{'='*70}")
     print(f"  {label}")
     print(f"{'='*70}")
@@ -243,8 +243,7 @@ def print_trajectory_summary(results, label, milestones=[50, 100, 200, 300, 500]
 
 def main():
     print("=" * 80)
-    print("  RSI (재귀적 자가 개선) 검증 테스트")
-    print("  Recursive Self-Improvement Verification")
+    print("  RSI (Recursive Self-Improvement) Verification Test")
     print("=" * 80)
 
     SEEDS = [42, 123, 456, 789, 1024]
@@ -252,9 +251,9 @@ def main():
     POP_SIZE = 20
 
     # ===================================================================
-    # Condition A: FROZEN (메타-그래머 비활성화)
+    # Condition A: FROZEN (meta-grammar disabled)
     # ===================================================================
-    print("\n▶ Condition A: FROZEN (no meta-grammar expansion)")
+    print("\n>> Condition A: FROZEN (no meta-grammar expansion)")
     frozen_results = []
     for i, seed in enumerate(SEEDS):
         t0 = time.time()
@@ -267,9 +266,9 @@ def main():
         frozen_results.append(r)
 
     # ===================================================================
-    # Condition B: SELF-MODIFY (메타-그래머 활성화)
+    # Condition B: SELF-MODIFY (meta-grammar enabled)
     # ===================================================================
-    print("\n▶ Condition B: SELF-MODIFY (meta-grammar expansion every 5 gen)")
+    print("\n>> Condition B: SELF-MODIFY (meta-grammar expansion every 5 gen)")
     modify_results = []
     for i, seed in enumerate(SEEDS):
         t0 = time.time()
@@ -282,46 +281,46 @@ def main():
         modify_results.append(r)
 
     # ===================================================================
-    # 비교 분석
+    # Comparative Analysis
     # ===================================================================
     print("\n" + "=" * 80)
-    print("  분석 결과 (Analysis)")
+    print("  Analysis Results")
     print("=" * 80)
 
-    # 1. Fitness 비교
+    # 1. Fitness comparison
     frozen_bests = [r["final"]["best_fitness"] for r in frozen_results]
     modify_bests = [r["final"]["best_fitness"] for r in modify_results]
 
-    print(f"\n  1. 최종 Fitness 비교 (Final Fitness Comparison)")
-    print(f"     FROZEN:      {np.mean(frozen_bests):.4f} ± {np.std(frozen_bests):.4f}")
-    print(f"     SELF-MODIFY: {np.mean(modify_bests):.4f} ± {np.std(modify_bests):.4f}")
+    print(f"\n  1. Final Fitness Comparison")
+    print(f"     FROZEN:      {np.mean(frozen_bests):.4f} +/- {np.std(frozen_bests):.4f}")
+    print(f"     SELF-MODIFY: {np.mean(modify_bests):.4f} +/- {np.std(modify_bests):.4f}")
     improvement = np.mean(modify_bests) - np.mean(frozen_bests)
-    print(f"     차이 (Δ):    {improvement:+.4f}")
+    print(f"     Delta:       {improvement:+.4f}")
     if improvement > 0.01:
-        print(f"     판정: 자가 수정이 fitness를 개선함 ✓")
+        print(f"     Verdict: Self-modification improves fitness")
     elif improvement > -0.01:
-        print(f"     판정: 차이 없음 (자가 수정이 fitness에 영향 없음) ✗")
+        print(f"     Verdict: No difference (self-modification has no effect on fitness)")
     else:
-        print(f"     판정: 자가 수정이 오히려 성능 저하 ✗✗")
+        print(f"     Verdict: Self-modification degrades performance")
 
-    # 2. Coverage 비교
+    # 2. Coverage comparison
     frozen_covs = [r["final"]["coverage"] for r in frozen_results]
     modify_covs = [r["final"]["coverage"] for r in modify_results]
 
-    print(f"\n  2. Coverage 비교")
-    print(f"     FROZEN:      {np.mean(frozen_covs):.4f} ± {np.std(frozen_covs):.4f}")
-    print(f"     SELF-MODIFY: {np.mean(modify_covs):.4f} ± {np.std(modify_covs):.4f}")
+    print(f"\n  2. Coverage Comparison")
+    print(f"     FROZEN:      {np.mean(frozen_covs):.4f} +/- {np.std(frozen_covs):.4f}")
+    print(f"     SELF-MODIFY: {np.mean(modify_covs):.4f} +/- {np.std(modify_covs):.4f}")
 
     # 3. Vocab growth
-    print(f"\n  3. Vocabulary 성장")
+    print(f"\n  3. Vocabulary Growth")
     for r in modify_results:
         traj = r["trajectory"]
-        print(f"     Seed {r['seed']}: {traj[0]['vocab_size']} → {traj[-1]['vocab_size']} "
+        print(f"     Seed {r['seed']}: {traj[0]['vocab_size']} -> {traj[-1]['vocab_size']} "
               f"(+{traj[-1]['generated_ops']} generated, "
               f"{traj[-1]['poly_ops']} poly)")
 
-    # 4. 생성된 Op 사용률 궤적
-    print(f"\n  4. 생성된 Op 사용률 궤적 (Utilization Trajectory)")
+    # 4. Generated op utilization trajectory
+    print(f"\n  4. Generated Op Utilization Trajectory")
     print(f"     {'Gen':>5}  ", end="")
     for seed in SEEDS:
         print(f"  s{seed:>4}", end="")
@@ -334,46 +333,46 @@ def main():
             print(f"  {t['utilization_rate']*100:5.1f}%", end="")
         print()
 
-    # 5. self_encode 사용률
-    print(f"\n  5. self_encode 사용률")
+    # 5. self_encode utilization
+    print(f"\n  5. self_encode Utilization")
     for r in modify_results:
         t = r["trajectory"][-1]
         rate = t["elites_using_self_encode"] / max(t["n_elites"], 1) * 100
         print(f"     Seed {r['seed']}: {t['elites_using_self_encode']}/{t['n_elites']} "
               f"elites ({rate:.1f}%)")
 
-    # 6. PolymorphicOp 사용률
-    print(f"\n  6. PolymorphicOp 사용률")
+    # 6. PolymorphicOp utilization
+    print(f"\n  6. PolymorphicOp Utilization")
     for r in modify_results:
         t = r["trajectory"][-1]
         rate = t["elites_using_poly"] / max(t["n_elites"], 1) * 100
         print(f"     Seed {r['seed']}: {t['elites_using_poly']}/{t['n_elites']} "
               f"elites ({rate:.1f}%)")
 
-    # 7. 재귀 깊이 분석
-    print(f"\n  7. 재귀 깊이 분석 (Recursion Depth)")
-    print(f"     깊이 0: 기본 op만 사용")
-    print(f"     깊이 1: 메타-그래머가 새 op 생성")
-    print(f"     깊이 2: 엘리트가 생성된 op 사용 → 더 높은 fitness")
-    print(f"     깊이 3: Library learning이 생성된 op 포함 패턴 추출")
-    print(f"     깊이 4: 2차 생성 op이 fitness 이점을 제공")
+    # 7. Recursion depth analysis
+    print(f"\n  7. Recursion Depth Analysis")
+    print(f"     Depth 0: Only base ops used")
+    print(f"     Depth 1: Meta-grammar generates new ops")
+    print(f"     Depth 2: Elites use generated ops -> higher fitness")
+    print(f"     Depth 3: Library learning extracts patterns containing generated ops")
+    print(f"     Depth 4: 2nd-gen ops provide fitness advantage")
     print()
     for r in modify_results:
         rec = r["recursion"]
-        print(f"     Seed {r['seed']}: 최대 깊이 = {rec['max_depth']}")
-        print(f"       D1 (새 op 생성):     {'✓' if rec['depth_1_new_ops'] else '✗'} "
-              f"({rec['depth_1_count']}개)")
-        print(f"       D2 (엘리트가 사용):   {'✓' if rec['depth_2_elites_use_ops'] else '✗'} "
-              f"({rec['depth_2_count']}개 엘리트)")
-        print(f"       D3 (복합 op 추출):   {'✓' if rec['depth_3_compound_ops'] else '✗'} "
-              f"({rec['depth_3_evidence_count']}건 증거)")
-        print(f"       D4 (재귀적 이점):    {'✓' if rec['depth_4_recursive_benefit'] else '✗'}")
-        print(f"       구성: lib={rec['lib_ops']} meta={rec['meta_ops']} poly={rec['poly_ops']}")
+        print(f"     Seed {r['seed']}: max depth = {rec['max_depth']}")
+        print(f"       D1 (new op gen):        {'Y' if rec['depth_1_new_ops'] else 'N'} "
+              f"({rec['depth_1_count']} ops)")
+        print(f"       D2 (elite usage):       {'Y' if rec['depth_2_elites_use_ops'] else 'N'} "
+              f"({rec['depth_2_count']} elites)")
+        print(f"       D3 (compound extract):  {'Y' if rec['depth_3_compound_ops'] else 'N'} "
+              f"({rec['depth_3_evidence_count']} evidence)")
+        print(f"       D4 (recursive benefit): {'Y' if rec['depth_4_recursive_benefit'] else 'N'}")
+        print(f"       Composition: lib={rec['lib_ops']} meta={rec['meta_ops']} poly={rec['poly_ops']}")
         print()
 
-    # 8. Convergence speed 비교
-    print(f"\n  8. 수렴 속도 비교 (Convergence Speed)")
-    print(f"     {'':>12} {'Gen→0.90':>10} {'Gen→0.95':>10} {'Gen→0.99':>10}")
+    # 8. Convergence speed comparison
+    print(f"\n  8. Convergence Speed Comparison")
+    print(f"     {'':>12} {'Gen->0.90':>10} {'Gen->0.95':>10} {'Gen->0.99':>10}")
     for label, results in [("FROZEN", frozen_results), ("SELF-MODIFY", modify_results)]:
         thresholds = {0.90: [], 0.95: [], 0.99: []}
         for r in results:
@@ -398,10 +397,10 @@ def main():
         print()
 
     # ===================================================================
-    # 최종 판정
+    # Final Verdict
     # ===================================================================
     print("\n" + "=" * 80)
-    print("  최종 판정 (Final Verdict)")
+    print("  Final Verdict")
     print("=" * 80)
 
     avg_depth = np.mean([r["recursion"]["max_depth"] for r in modify_results])
@@ -409,35 +408,35 @@ def main():
     any_depth_3 = any(r["recursion"]["depth_3_compound_ops"] for r in modify_results)
     avg_util = np.mean([r["final"]["utilization_rate"] for r in modify_results])
 
-    print(f"\n  평균 재귀 깊이: {avg_depth:.1f}")
-    print(f"  평균 생성 op 사용률: {avg_util*100:.1f}%")
-    print(f"  Fitness 개선 (vs FROZEN): {improvement:+.4f}")
+    print(f"\n  Average recursion depth: {avg_depth:.1f}")
+    print(f"  Average generated op utilization: {avg_util*100:.1f}%")
+    print(f"  Fitness improvement (vs FROZEN): {improvement:+.4f}")
 
     if any_depth_4 and improvement > 0.01:
         verdict = "GENUINE_RECURSIVE_SELF_IMPROVEMENT"
-        desc = "재귀적 자가 개선이 확인됨: 시스템이 스스로 생성한 도구를 사용하여\n" \
-               "    더 나은 도구를 생성하고, 그것이 다시 성능을 개선하는 재귀 루프가 작동함."
+        desc = "Recursive self-improvement confirmed: the system uses self-generated tools\n" \
+               "    to create better tools, which in turn improve performance \u2014 recursive loop active."
     elif any_depth_3 and improvement > 0.01:
         verdict = "PARTIAL_RSI_DEPTH_3"
-        desc = "부분적 자가 개선: 시스템이 생성한 op을 사용하여 새로운 패턴을 추출하지만,\n" \
-               "    2차 생성이 명확한 fitness 이점을 제공하는지는 불확실."
+        desc = "Partial self-improvement: the system extracts new patterns using generated ops,\n" \
+               "    but whether 2nd-gen ops provide clear fitness advantage is uncertain."
     elif any_depth_3 and improvement > -0.01:
         verdict = "SELF_MODIFICATION_WITHOUT_IMPROVEMENT"
-        desc = "자가 수정은 되지만 개선 없음: 시스템이 구조를 변경하지만\n" \
-               "    변경이 성능 향상으로 이어지지 않음."
+        desc = "Self-modification without improvement: the system modifies its structure\n" \
+               "    but changes do not lead to performance gains."
     elif avg_depth >= 2 and improvement > 0.01:
         verdict = "ONE_SHOT_IMPROVEMENT"
-        desc = "1회성 개선: 생성된 op이 사용되고 fitness가 개선되지만\n" \
-               "    재귀 루프(생성→사용→재생성)가 확인되지 않음."
+        desc = "One-shot improvement: generated ops are used and fitness improves,\n" \
+               "    but the recursive loop (generate->use->re-generate) is not confirmed."
     else:
         verdict = "NO_RSI"
-        desc = "재귀적 자가 개선이 확인되지 않음."
+        desc = "Recursive self-improvement not confirmed."
 
     print(f"\n  VERDICT: {verdict}")
-    print(f"  설명: {desc}")
+    print(f"  Description: {desc}")
 
     # Save raw data
-    print(f"\n  원시 데이터:")
+    print(f"\n  Raw data:")
     print(f"  FROZEN  seeds: {[r['final']['best_fitness'] for r in frozen_results]}")
     print(f"  MODIFY  seeds: {[r['final']['best_fitness'] for r in modify_results]}")
     print(f"  MODIFY depths: {[r['recursion']['max_depth'] for r in modify_results]}")
