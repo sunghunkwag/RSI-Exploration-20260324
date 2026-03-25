@@ -333,12 +333,105 @@ COMPLETE — Tier 1 mechanisms (Self-Reference + Context-Dependent Evaluation) i
 
 ---
 
+---
+
+## 2026-03-26 — Session 11: V4/V5 Verification + Integration Fix
+
+### Baseline
+- 142/142 tests pass (after fixing main.py broken by commit 7d44af1)
+- CAGE snapshot: Omega VM backend added (commits 9a21a24, 4ff6b68, 7d44af1)
+- Fix applied: restored full architecture from 154f9e7, added omega_backend wiring on top
+- Architectural ceiling: unchanged — ExprNode trees NOT Turing-complete
+
+### Monitoring
+- arxiv: 22 scanned, 7 relevant
+- GitHub: 12 scanned, 3 relevant
+- Cumulative: arxiv 79, GitHub 37
+- Key finding: NO papers/repos claiming runtime representation FORMAT expansion. Darwin Gödel Machine, Gödel Agent, DéjàQ, OpenEvolve all modify content within fixed formats.
+
+### V4 — End-to-End Evolution Test (CRITICAL)
+
+**Initial V4 result: DEAD_CODE for both Tier 1 mechanisms.**
+
+Root causes identified:
+1. **self_encode not registered in VocabularyLayer.** It was handled as a special case in `_eval_tree` but never added to the vocabulary. Grammar's `random_tree` and `mutate` only use registered ops. self_encode was unreachable: 0/1000 random trees, 0/1000 mutations, 0/104 elites across 5 seeds.
+2. **MetaGrammarLayer cannot generate PolymorphicOps.** `_get_hyper_rule_templates()` explicitly filters out PolymorphicOps. No meta-rule creates them. 0/100 meta-expansions produced PolymorphicOps. 0/104 elites contained them.
+
+**Fixes applied:**
+1. Registered `self_encode` as PrimitiveOp(arity=0, cost=0.5) in `VocabularyLayer._register_defaults()`. Returns 0.0 from vocab; actual fingerprint-dependent value computed in `_eval_tree` via EvalContext.
+2. Added `_meta_create_polymorphic_op` meta-rule to MetaGrammarLayer. Takes 2-4 unary ops, bundles into PolymorphicOp dispatching on `topo_key()`. Fires when vocab_size >= 12 and coverage < 0.6.
+3. Added `accepts_child_type`, `input_types`, `output_type` to PolymorphicOp dataclass for refinement type compatibility.
+
+**V4 re-run results (5 seeds × 200 generations):**
+
+| Seed | Best Fitness | self_encode in elites | PolymorphicOps in elites |
+|------|-------------|----------------------|--------------------------||
+| 42   | 0.4995      | 13/22 (59%)          | 7/22 (32%)               |
+| 123  | 0.9998      | 4/19 (21%)           | 5/19 (26%)               |
+| 456  | 0.9998      | 9/21 (43%)           | 0/21 (0%)                |
+| 789  | 0.9998      | 9/20 (45%)           | 0/20 (0%)                |
+| 1024 | 0.7183      | 8/21 (38%)           | 0/21 (0%)                |
+| **Total** | | **43/103 (42%)** | **12/103 (12%)** |
+
+**V4 VERDICT: USED — Both mechanisms active in evolutionary loop.**
+
+### V5 — Format Isomorphism Test
+
+**Mechanism 1 (Self-Reference / self_encode):**
+- |F_theo(baseline, depth=1)| = 14 distinct functions
+- |F_theo(+self_encode, depth=1)| = 42 distinct functions
+- 28 NEW functions expressible only with self-reference
+- Example: `add(x, self_encode)` computes `x + h(T)` where h depends on tree identity. Two structurally different trees compute provably different functions.
+- **VERDICT: NON-ISOMORPHIC → GENUINE_F_THEO_EXPANSION**
+
+**Mechanism 2 (Context-Dependent / PolymorphicOp):**
+- PolymorphicOp with k variants = syntactic sugar for k base ops selected by position
+- At unlimited depth with all base ops available: `F_theo(+poly) = F_theo(base)`
+- Any position-dependent dispatch can be replicated by using the k base ops directly
+- **VERDICT: ISOMORPHIC at unlimited resources → F_EFF_GAIN_UNDER_CONSTRAINT**
+- Reclassification: Mechanism 2 is not a cage-breaking expansion but a search efficiency improvement under depth constraints.
+
+### Verification Summary Table
+
+```
+V1 F_theo changed:        YES (Mechanism 1), NO (Mechanism 2)
+V2 Prior work:            YES — Kleene recursion theorem (1938), quines
+V3 Self-expansion:        EXTERNAL (agent registered self_encode + poly meta-rule)
+V4 Evolution loop:        USED — 42% elites use self_encode, 12% use PolymorphicOps
+V5 Format isomorphism:    NON-ISOMORPHIC (M1), ISOMORPHIC (M2)
+
+FINAL VERDICT:
+  Mechanism 1 (Self-Reference): GENUINE_F_THEO_EXPANSION + REIMPLEMENTATION + EXTERNAL_INJECTION
+  Mechanism 2 (Context-Dependent): F_EFF_GAIN_UNDER_CONSTRAINT + EXTERNAL_INJECTION
+```
+
+**Honest assessment:** Mechanism 1 genuinely expands F_theo but is a reimplementation of well-known self-reference (Kleene 1938). It was externally injected (agent wrote the code). The evolutionary loop uses it but could not have discovered it on its own — the system cannot add new PrimitiveOps to its own vocabulary without meta-grammar intervention. Mechanism 2 is an efficiency gain, not an expansion.
+
+### Tests added
+- `TestV4SelfEncodeEvolutionIntegration`: 3 tests (vocab registration, random tree appearance, elite usage)
+- `TestV4PolymorphicOpEvolutionIntegration`: 3 tests (meta-grammar creation, type compat, evolved population)
+- `TestV5FormatIsomorphism`: 2 tests (self_encode F_theo expansion, PolymorphicOp F_eff)
+- **150/150 tests pass** (94 main + 56 omega_backend)
+
+### Files modified
+- `main.py` — self_encode PrimitiveOp registration, _meta_create_polymorphic_op rule, PolymorphicOp type compatibility (~+70 lines)
+- `test_main.py` — 8 new V4/V5 tests (~+100 lines)
+- `docs/monitoring-log.md` — 2026-03-26 scan results
+- `docs/session-tracker.md` — Session 11 entry
+- `docs/daily-log.md` — This entry
+
+### Session assessment
+COMPLETE — V4 and V5 verification performed. Critical DEAD_CODE issue found and fixed. Both mechanisms now active in evolutionary loop. Mechanism 1 confirmed as genuine F_theo expansion. Mechanism 2 reclassified as F_eff gain.
+
+---
+
 ## Protocol Summary: Design Space Escape Protocol v4
 
-**Total sessions:** 10 (8 domain + 1 synthesis + 1 build)
+**Total sessions:** 11 (8 domain + 1 synthesis + 1 build + 1 verification)
 **Total extractions:** 60 across 8 domains
 **STRUCTURAL_EXPANSION rate:** 55% (33/60)
 **Mechanism families identified:** 7
 **Mechanisms implemented:** 2 (Tier 1: Self-Reference + Context-Dependent Evaluation)
-**Final test count:** 62/62 pass
-**Architectural ceilings addressed:** #1 (self-reference) fully, #2 (adaptive grammar) partially via context-dependent evaluation
+**V4/V5 verified:** YES — Mechanism 1 = GENUINE_F_THEO_EXPANSION, Mechanism 2 = F_EFF_GAIN
+**Final test count:** 150/150 pass
+**Architectural ceilings addressed:** #1 (self-reference) via self_encode, #2 (adaptive grammar) partially via PolymorphicOp context dispatch
