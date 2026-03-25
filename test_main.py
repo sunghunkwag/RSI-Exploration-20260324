@@ -21,6 +21,8 @@ from main import (
     build_rsi_system,
     symbolic_regression_fitness,
     _eval_tree,
+    EvalContext,
+    PolymorphicOp,
 )
 
 
@@ -372,7 +374,7 @@ class TestLibraryLearner:
     def test_extract_from_repeated_subtrees(self, vocab):
         """When the same subtree appears in multiple trees, it should be extracted."""
         lib = LibraryLearner(vocab, min_subtree_depth=2, min_frequency=2)
-        # Build a shared subtree: add(input_x, const_one) — depth 1 from leaves, depth 1 total
+        # Build a shared subtree: add(input_x, const_one) -- depth 1 from leaves, depth 1 total
         # We need depth >= 2, so: add(mul(input_x, input_x), const_one)
         shared = ExprNode("add", children=[
             ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
@@ -424,7 +426,7 @@ class TestLibraryLearner:
     def test_no_extraction_below_frequency_threshold(self, vocab):
         """Subtrees appearing fewer than min_frequency times should not be extracted."""
         lib = LibraryLearner(vocab, min_subtree_depth=2, min_frequency=3)
-        # Only 2 trees with the same subtree — below threshold of 3
+        # Only 2 trees with the same subtree -- below threshold of 3
         tree1 = ExprNode("neg", children=[
             ExprNode("add", children=[
                 ExprNode("mul", children=[ExprNode("input_x"), ExprNode("input_x")]),
@@ -515,7 +517,7 @@ class TestLibraryLearner:
     def test_constant_subtree_extraction(self, vocab):
         """Subtrees without input_x should be extracted as arity-0 ops."""
         lib = LibraryLearner(vocab, min_subtree_depth=2, min_frequency=2)
-        # Subtree: add(const_one, const_one) — no input_x, depth=1
+        # Subtree: add(const_one, const_one) -- no input_x, depth=1
         # Need depth >= 2: add(square(const_one), const_one)
         const_sub = ExprNode("add", children=[
             ExprNode("square", children=[ExprNode("const_one")]),
@@ -560,14 +562,14 @@ class TestNoveltyScreener:
         """
         screener = NoveltyScreener(similarity_threshold=0.85)
 
-        # --- Case 1: identical trees → Jaccard = 1.0 ---
+        # --- Case 1: identical trees -> Jaccard = 1.0 ---
         tree = ExprNode("add", children=[
             ExprNode("input_x"),
             ExprNode("const_one"),
         ])
         assert screener.structural_similarity(tree, tree) == 1.0
 
-        # --- Case 2: partially overlapping trees → 0 < Jaccard < 1 ---
+        # --- Case 2: partially overlapping trees -> 0 < Jaccard < 1 ---
         # tree_a subtrees: {add(input_x, const_one), input_x, const_one}
         tree_a = ExprNode("add", children=[
             ExprNode("input_x"),
@@ -584,7 +586,7 @@ class TestNoveltyScreener:
         # Exact expected: |{input_x, const_one}| / |{add(..), mul(..), input_x, const_one}| = 2/4 = 0.5
         assert abs(sim_partial - 0.5) < 1e-9
 
-        # --- Case 3: completely disjoint trees → Jaccard = 0.0 ---
+        # --- Case 3: completely disjoint trees -> Jaccard = 0.0 ---
         # tree_c has no shared subtree fingerprints with tree_d
         tree_c = ExprNode("input_x")  # subtrees: {input_x}
         tree_d = ExprNode("const_one")  # subtrees: {const_one}
@@ -593,7 +595,7 @@ class TestNoveltyScreener:
 
         # --- Case 4: deeper tree, one is subtree of the other ---
         # tree_e contains tree_a as a subtree, so all of tree_a's
-        # fingerprints appear in tree_e's set → similarity > 0
+        # fingerprints appear in tree_e's set -> similarity > 0
         tree_e = ExprNode("neg", children=[
             ExprNode("add", children=[
                 ExprNode("input_x"),
@@ -601,7 +603,7 @@ class TestNoveltyScreener:
             ])
         ])
         sim_subset = screener.structural_similarity(tree_a, tree_e)
-        # tree_a fps ⊂ tree_e fps, so intersection = |tree_a fps|
+        # tree_a fps is subset of tree_e fps, so intersection = |tree_a fps|
         # Jaccard = |tree_a fps| / |tree_e fps| = 3/4 = 0.75
         assert 0.0 < sim_subset < 1.0
         assert abs(sim_subset - 0.75) < 1e-9
@@ -632,27 +634,27 @@ class TestNoveltyScreener:
             )
         ]
 
-        # --- Candidate identical to archive member → similarity = 1.0 > 0.5 → REJECT ---
+        # --- Candidate identical to archive member -> similarity = 1.0 > 0.5 -> REJECT ---
         identical_candidate = ExprNode("add", children=[
             ExprNode("input_x"),
             ExprNode("const_one"),
         ])
         assert not screener.should_accept(identical_candidate, archive_entries)
 
-        # --- Candidate completely disjoint → similarity = 0.0 <= 0.5 → ACCEPT ---
+        # --- Candidate completely disjoint -> similarity = 0.0 <= 0.5 -> ACCEPT ---
         novel_candidate = ExprNode("const_zero")
         assert screener.should_accept(novel_candidate, archive_entries)
 
-        # --- Candidate with borderline similarity exactly at threshold → ACCEPT ---
+        # --- Candidate with borderline similarity exactly at threshold -> ACCEPT ---
         # mul(input_x, const_one) shares {input_x, const_one} with archive,
-        # Jaccard = 2/4 = 0.5  (== threshold → should accept since condition is <=)
+        # Jaccard = 2/4 = 0.5  (== threshold -> should accept since condition is <=)
         borderline_candidate = ExprNode("mul", children=[
             ExprNode("input_x"),
             ExprNode("const_one"),
         ])
         assert screener.should_accept(borderline_candidate, archive_entries)
 
-        # --- Candidate slightly above threshold → REJECT ---
+        # --- Candidate slightly above threshold -> REJECT ---
         # Use screener with lower threshold to force rejection of the partial overlap
         strict_screener = NoveltyScreener(similarity_threshold=0.4)
         assert not strict_screener.should_accept(borderline_candidate, archive_entries)
@@ -684,13 +686,13 @@ class TestNoveltyScreener:
             )
         ]
 
-        # Screen 1: novel candidate → accepted (screening +1, rejection +0)
+        # Screen 1: novel candidate -> accepted (screening +1, rejection +0)
         novel = ExprNode("const_zero")
         screener.should_accept(novel, archive_entries)
         assert screener._screenings == 1
         assert screener._rejections == 0
 
-        # Screen 2: identical candidate → rejected (screening +1, rejection +1)
+        # Screen 2: identical candidate -> rejected (screening +1, rejection +1)
         duplicate = ExprNode("add", children=[
             ExprNode("input_x"),
             ExprNode("const_one"),
@@ -699,7 +701,7 @@ class TestNoveltyScreener:
         assert screener._screenings == 2
         assert screener._rejections == 1
 
-        # Screen 3: another novel candidate → accepted
+        # Screen 3: another novel candidate -> accepted
         novel2 = ExprNode("const_one")
         screener.should_accept(novel2, archive_entries)
         assert screener._screenings == 3
@@ -742,7 +744,7 @@ class TestEnhancedArchiveNoveltyRejection:
             similarity_threshold=0.3,
         )
 
-        # --- Step 1: insert an initial entry (cell is empty → always accepted) ---
+        # --- Step 1: insert an initial entry (cell is empty -> always accepted) ---
         initial_tree = ExprNode("add", children=[
             ExprNode("mul", children=[
                 ExprNode("input_x"),
@@ -762,7 +764,7 @@ class TestEnhancedArchiveNoveltyRejection:
         assert archive.summary()["filled_cells"] == 1
 
         # --- Step 2: create a *structurally identical* candidate with HIGHER fitness ---
-        # Same tree structure → structural_similarity == 1.0 >> threshold (0.3)
+        # Same tree structure -> structural_similarity == 1.0 >> threshold (0.3)
         similar_tree = ExprNode("add", children=[
             ExprNode("mul", children=[
                 ExprNode("input_x"),
@@ -794,7 +796,7 @@ class TestEnhancedArchiveNoveltyRejection:
         assert screening_summary["rejection_rate"] == 1.0
 
         # --- Step 4: insert a genuinely novel candidate into the same cell ---
-        # This tree is structurally very different → low similarity → accepted
+        # This tree is structurally very different -> low similarity -> accepted
         novel_tree = ExprNode("neg", children=[
             ExprNode("const_zero"),
         ])
@@ -813,6 +815,152 @@ class TestEnhancedArchiveNoveltyRejection:
         screening_summary_2 = archive.summary()["novelty_screening"]
         assert screening_summary_2["screenings"] == 2
         assert screening_summary_2["rejections"] == 1
+
+
+# ---------------------------------------------------------------------------
+# SESSION 10: MECHANISM 1 (SELF-REFERENCE) TESTS
+# ---------------------------------------------------------------------------
+
+class TestSelfReference:
+    """Tests for Mechanism 1: Self-Reference (A.7 Diagonal Lemma, D.1 Quines)."""
+
+    def test_self_encode_returns_deterministic_value(self, vocab):
+        tree = ExprNode("self_encode")
+        ctx = EvalContext(self_fingerprint=tree.fingerprint())
+        v1 = _eval_tree(tree, vocab, 0.0, ctx)
+        v2 = _eval_tree(tree, vocab, 0.0, ctx)
+        assert v1 == v2
+        assert 0.0 <= v1 <= 1.0
+
+    def test_self_encode_differs_for_different_trees(self, vocab):
+        tree_a = ExprNode("add", [ExprNode("input_x"), ExprNode("const_one")])
+        tree_b = ExprNode("mul", [ExprNode("input_x"), ExprNode("input_x")])
+        ctx_a = EvalContext(self_fingerprint=tree_a.fingerprint())
+        ctx_b = EvalContext(self_fingerprint=tree_b.fingerprint())
+        se_node = ExprNode("self_encode")
+        v_a = _eval_tree(se_node, vocab, 0.0, ctx_a)
+        v_b = _eval_tree(se_node, vocab, 0.0, ctx_b)
+        assert v_a != v_b
+
+    def test_self_encode_in_composition(self, vocab):
+        tree = ExprNode("add", [ExprNode("input_x"), ExprNode("self_encode")])
+        ctx = EvalContext(self_fingerprint=tree.fingerprint())
+        result = _eval_tree(tree, vocab, 5.0, ctx)
+        fp_val = (int(tree.fingerprint()[:8], 16) % 10000) / 10000.0
+        assert abs(result - (5.0 + fp_val)) < 1e-9
+
+    def test_self_encode_without_context_returns_zero(self, vocab):
+        tree = ExprNode("self_encode")
+        result = _eval_tree(tree, vocab, 0.0)
+        assert result == 0.0
+
+    def test_self_encode_fixed_point_property(self, vocab):
+        """Self-referential trees express fixed-point computations."""
+        tree = ExprNode("add", [ExprNode("input_x"), ExprNode("self_encode")])
+        ctx = EvalContext(self_fingerprint=tree.fingerprint())
+        fp_val = (int(tree.fingerprint()[:8], 16) % 10000) / 10000.0
+        for x in [0.0, 1.0, -3.5, 100.0]:
+            result = _eval_tree(tree, vocab, x, ctx)
+            assert abs(result - (x + fp_val)) < 1e-9
+        tree2 = ExprNode("mul", [ExprNode("input_x"), ExprNode("self_encode")])
+        ctx2 = EvalContext(self_fingerprint=tree2.fingerprint())
+        fp_val2 = (int(tree2.fingerprint()[:8], 16) % 10000) / 10000.0
+        assert fp_val != fp_val2
+        result2 = _eval_tree(tree2, vocab, 5.0, ctx2)
+        assert abs(result2 - (5.0 * fp_val2)) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# SESSION 10: MECHANISM 2 (CONTEXT-DEPENDENT EVALUATION) TESTS
+# ---------------------------------------------------------------------------
+
+class TestContextDependentEvaluation:
+    """Tests for Mechanism 2: Context-Dependent Evaluation (C.3, G.6)."""
+
+    def test_eval_context_creation(self):
+        ctx = EvalContext()
+        assert ctx.niche_id == 0
+        assert ctx.env_tag == "default"
+        assert ctx.self_fingerprint == ""
+
+    def test_context_key_in_range(self):
+        ctx1 = EvalContext(niche_id=0, env_tag="test")
+        ctx2 = EvalContext(niche_id=1, env_tag="test")
+        assert 0 <= ctx1.context_key() <= 3
+        assert 0 <= ctx2.context_key() <= 3
+
+    def test_polymorphic_op_dispatches_by_context(self):
+        dispatch = {
+            0: lambda a: a * 2,
+            1: lambda a: a + 10,
+            2: lambda a: -a,
+            3: lambda a: a * a,
+        }
+        pop = PolymorphicOp(
+            name="poly_test", arity=1,
+            dispatch_table=dispatch,
+            default_fn=lambda a: a,
+        )
+        results = set()
+        for niche in range(10):
+            ctx = EvalContext(niche_id=niche, env_tag="test")
+            results.add(pop(5.0, ctx=ctx))
+        assert len(results) >= 2
+
+    def test_polymorphic_op_without_context_uses_default(self):
+        pop = PolymorphicOp(
+            name="poly_test", arity=1,
+            dispatch_table={0: lambda a: a * 2},
+            default_fn=lambda a: a + 100,
+        )
+        assert pop(5.0) == 105.0
+
+    def test_polymorphic_op_in_eval_tree(self, vocab):
+        pop = PolymorphicOp(
+            name="poly_scale", arity=1,
+            dispatch_table={0: lambda a: a * 10, 1: lambda a: a * 20,
+                            2: lambda a: a * 30, 3: lambda a: a * 40},
+            default_fn=lambda a: a,
+        )
+        vocab.register(pop)
+        tree = ExprNode("poly_scale", [ExprNode("input_x")])
+        ctx = EvalContext(niche_id=0, env_tag="test")
+        key = ctx.context_key()
+        expected = {0: 10, 1: 20, 2: 30, 3: 40}[key]
+        result = _eval_tree(tree, vocab, 3.0, ctx)
+        assert result == 3.0 * expected
+
+    def test_same_tree_different_context_different_output(self, vocab):
+        """Critical F_theo expansion: same tree, different context, different output."""
+        pop = PolymorphicOp(
+            name="ctx_op", arity=1,
+            dispatch_table={0: lambda a: a + 1, 1: lambda a: a * 2,
+                            2: lambda a: a - 1, 3: lambda a: a ** 2},
+            default_fn=lambda a: a,
+        )
+        vocab.register(pop)
+        tree = ExprNode("ctx_op", [ExprNode("input_x")])
+        outputs = set()
+        for niche in range(20):
+            for env in ["alpha", "beta", "gamma", "delta"]:
+                ctx = EvalContext(niche_id=niche, env_tag=env)
+                outputs.add(_eval_tree(tree, vocab, 5.0, ctx))
+        assert len(outputs) >= 2
+
+    def test_context_backward_compatible(self, vocab):
+        tree = ExprNode("add", [ExprNode("input_x"), ExprNode("const_one")])
+        r1 = _eval_tree(tree, vocab, 3.0)
+        ctx = EvalContext(self_fingerprint=tree.fingerprint())
+        r2 = _eval_tree(tree, vocab, 3.0, ctx)
+        assert r1 == r2 == 4.0
+
+    def test_fitness_functions_accept_context(self, vocab):
+        tree = ExprNode("add", [ExprNode("input_x"), ExprNode("const_one")])
+        ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="test")
+        r1 = symbolic_regression_fitness(tree, vocab, ctx=ctx)
+        r2 = symbolic_regression_fitness(tree, vocab)
+        assert isinstance(r1, float)
+        assert isinstance(r2, float)
 
 
 if __name__ == "__main__":
