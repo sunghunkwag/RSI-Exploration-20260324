@@ -206,3 +206,56 @@ COMPLETE — All 8 sub-topics have full formal structure extractions. Domain C r
 
 ### Session assessment
 COMPLETE — All 8 sub-topics have full formal structure extractions. Domain D report written to docs/domains/domain-D-cs.md. Key insight: self-reference is the master cage-breaking mechanism (D.1→D.4→D.7 progression). LibraryLearner already implements core program synthesis mechanism (D.2, D.3 = COMBINATORIAL_RECOMBINATION).
+
+---
+
+## 2026-03-25 — Session 5: Domain E (Music, Acoustics & Compositional Theory)
+
+### Baseline
+- 49/49 tests pass
+- CAGE snapshot: no changes since Session 4 (same day)
+- Architectural ceiling: unchanged from Session 1
+- Today's domain: E (Music, Acoustics & Compositional Theory)
+- Previous sessions completed: Sessions 1-4 (Domains A, B, C, D)
+
+### Monitoring
+- arxiv: 0 incremental (5th session same day)
+- GitHub: 0 incremental
+- Cumulative: arxiv 57, GitHub 25
+
+### Domain investigation
+- Sub-topics investigated: 6
+- Full formal extractions completed: 6
+- STRUCTURAL_EXPANSION verdicts: 4 (E.1 Schenkerian Analysis, E.3 Spectral Music, E.4 GTTM, E.6 Microtonality/JI)
+- COMBINATORIAL_RECOMBINATION verdicts: 2 (E.2 Serialism, E.5 L-Systems)
+- NO_STRUCTURE_FOUND: 0
+- Remaining incomplete: 0
+
+### Key findings from Domain E
+
+**Cross-domain convergence dominates this domain.** Four of five cross-domain patterns connect to previously identified mechanisms.
+
+**Strongest cage-breaking candidates:**
+
+1. **Spectral / continuous primitives** (E.3) — FORMAT_CHANGE from discrete scalar to continuous vector. Same structural expansion as B.1/B.8 (physics). Transplant: extend PrimitiveOp to output vectors (SpectralOp), add spectral composition rules. Layer 1 + FORMAT_CHANGE.
+
+2. **Preference-based rule selection** (E.4 GTTM) — Replace random rule selection with preference-ranked selection. Converges with C.1b (paribhāṣā) — three domains now independently identify this mechanism. Transplant: multi-component hierarchy with cross-constraints. Layer 2.
+
+3. **Structure-preserving composition** (E.1 Schenkerian) — Multi-level prolongation preserving structural tones of higher levels. New composition mode absent from ExprNode. Connects to D.6 (TAG adjunction). Layer 2 + FORMAT_CHANGE.
+
+4. **Lattice-structured vocabulary** (E.6 JI/Microtonality) — Infinite lattice with geometric consonance constraints. Genuinely expands vocabulary with structured relationships. Layer 1 + FORMAT_CHANGE.
+
+**Within-format (not cage-breaking):**
+
+5. **Group symmetry operations** (E.2 Serialism) — Bijections on same set. Confirms B.4-B.6 pattern: symmetry-preserving transformations = COMBINATORIAL_RECOMBINATION.
+
+6. **Parallel rewriting** (E.5 L-systems) — Exponential compactness but same F_theo. Useful as MetaGrammarLayer strategy.
+
+**Key cross-domain patterns:**
+- E.3 = B.1/B.8 (continuous primitives are recurring FORMAT_CHANGE)
+- E.4 = C.1b (preference rules replace random selection — 3 independent domains)
+- E.2 confirms B.4-B.6 (group symmetry = recombination)
+- E.1 connects to D.6 (structure-preserving hierarchical composition)
+
+### Session assessment
+COMPLETE — All 6 sub-topics have full formal structure extractions. Domain E report written to docs/domains/domain-E-music.md. Key insight: cross-domain convergence is the dominant finding — continuous primitives (E.3=B.1/B.8), preference rules (E.4=C.1b), group symmetry as recombination (E.2=B.4-B.6). No fundamentally new cage-breaking mechanism discovered; rather, Domain E reinforces and validates patterns from Domains A-D.
