@@ -1,0 +1,49 @@
+# Papers Read
+
+## Format
+[YYYY-MM-DD] arxiv:ID "Title" — VERDICT: [RELEVANT/NOT/DEEPER]
+
+## Entries
+
+[2026-03-25] arxiv:2505.22954 "Darwin Gödel Machine" — VERDICT: RELEVANT
+[2026-03-25] arxiv:2602.04837 "Group-Evolving Agents" — VERDICT: RELEVANT
+[2026-03-25] arxiv:2602.03094 "Test-time Recursive Thinking" — VERDICT: RELEVANT
+[2026-03-25] arxiv:2603.18000 "AgentFactory" — VERDICT: RELEVANT
+[2026-03-25] arxiv:2310.02304 "STOP: LM-infused scaffolding for recursive code improvement" — VERDICT: RELEVANT
+[2026-03-25] arxiv:2510.21407 "REvolution: evolutionary computation + LLM design strategy evolution" — VERDICT: RELEVANT
+[2026-03-25] arxiv:2412.05852 "Grammar-guided GP for multigrid" — VERDICT: DEEPER
+[2026-03-25] arxiv:2210.04826 "Data types as GP frontend" — VERDICT: DEEPER
+[2026-03-25] arxiv:2510.02686 "EvoSpeak: grammar-guided GP with LLM interpretability" — VERDICT: DEEPER
+[2026-03-25] arxiv:2509.19349 "ShinkaEvolve: open-ended program evolution" — VERDICT: DEEPER
+[2026-03-25] arxiv:2602.20133 "AdaEvolve: hierarchical adaptive optimization" — VERDICT: RELEVANT
+[2026-03-25] arxiv:2503.21985 "SymPE: symmetry breaking expanding representational power" — VERDICT: DEEPER
+[2026-03-25] arxiv:2502.05300 "Parameter Symmetry Breaking: dynamics for hierarchical representation" — VERDICT: DEEPER
+[2026-03-25] arxiv:2510.06990 "Representation theory and Langlands duality" — VERDICT: DEEPER
+[2026-03-25] arxiv:2411.11633 "Cluster structures and tropical duality" — VERDICT: DEEPER
+[2026-03-26] arxiv:2505.22954v2 "Darwin Gödel Machine v2 (updated)" — VERDICT: DEEPER
+[2026-03-26] arxiv:2410.04444 "Gödel Agent: LLM-driven self-referential recursive improvement" — VERDICT: RELEVANT
+[2026-03-26] arxiv:2601.01931 "DéjàQ: MAP-Elites for evolving diverse RL training problems" — VERDICT: RELEVANT
+[2026-03-26] arxiv:2502.00593 "Dominated Novelty Search" — VERDICT: RELEVANT
+[2026-03-26] arxiv:2502.20435 "Duality viewpoint of noninvertible symmetry" — VERDICT: DEEPER
+[2026-03-26] arxiv:2512.13857 "EvoLattice: DAG-based population with multi-alternative QD" — VERDICT: DEEPER
+[2026-03-26] arxiv:2602.23413 "EvoX: Meta-evolution framework" — VERDICT: RELEVANT
+[2026-03-26] arxiv:2212.14392 "Self-Referential Meta-Learning (Kirsch & Schmidhuber)" — VERDICT: RELEVANT
+[2026-03-26] arxiv:2603.11327 "MR-Search: Meta-RL with self-reflection for agentic search" — VERDICT: RELEVANT
+[2026-03-26] arxiv:2603.10742 "Grammar of ML Workflows (Roth 2026)" — VERDICT: RELEVANT
+[2026-03-26] arxiv:2603.19461 "HyperAgents: self-referential agents unifying task+meta into single editable program" — VERDICT: DEEPER
+[2026-03-26] arxiv:2510.10232 "SGM: Statistical Gödel Machine for Risk-Controlled Recursive Self-Modification" — VERDICT: RELEVANT
+[2026-03-26] arxiv:2510.21614 "Huxley-Gödel Machine: Human-Level Coding Agent" — VERDICT: NOT (coding agent, no representation expansion)
+[2026-03-26] arxiv:2510.14150 "CodeEvolve: open source evolutionary coding agent" — VERDICT: NOT (search within fixed format)
+[2026-03-26] arxiv:2601.07348 "Controlled Self-Evolution for Algorithmic Code Optimization" — VERDICT: NOT (content modification)
+[2026-03-26] arxiv:2507.14172 "Self-Improving Language Models for Evolutionary Program Synthesis" — VERDICT: NOT (LLM within training distribution)
+[2026-03-26] arxiv:2508.07407 "Comprehensive Survey of Self-Evolving AI Agents" — VERDICT: NOT (survey)
+[2026-03-26] arxiv:2505.18646 "SEW: Self-Evolving Agentic Workflows" — VERDICT: NOT (workflow optimization, fixed format)
+[2026-03-26] arxiv:2507.21046 "Survey of Self-Evolving Agents: On Path to ASI" — VERDICT: NOT (survey)
+[2026-03-26] arxiv:2502.20485 "Bounded First-Class Universe Levels in Dependent Type Theory" — VERDICT: DEEPER
+[2026-03-26] arxiv:2512.16342 "Mechanizing Operads with Event-B" — VERDICT: RELEVANT
+[2026-03-26] arxiv:2503.06091 "Theta Theory: Operads and Coloring" — VERDICT: RELEVANT
+[2026-03-26] arxiv:2212.09060 "Parsing as a lifting problem and Chomsky-Schützenberger" — VERDICT: DEEPER
+[2026-03-26] arxiv:2602.04892 "Doc2Spec: Synthesizing Formal Specifications via Grammar Induction" — VERDICT: NOT (template-based, not adaptive)
+[2026-03-26] arxiv:2510.02524 "Unraveling Syntax: How LMs Learn Context-Free Grammars" — VERDICT: RELEVANT
+[2026-03-26] arxiv:2506.09046 "Agentic Neural Networks: Self-Evolving via Textual Backpropagation" — VERDICT: NOT (content modification within fixed NN format)
+[2026-03-26] arxiv:2512.16406 "Hypernetworks That Evolve Themselves" — VERDICT: RELEVANT
