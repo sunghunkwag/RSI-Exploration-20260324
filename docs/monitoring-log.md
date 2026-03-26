@@ -94,3 +94,84 @@ Session 12 scan confirms pattern: NO papers/repos claiming runtime representatio
 
 ### CAGE diagnostic summary (Day 1)
 HyperAgents is the most architecturally ambitious new find: metacognitive self-modification where the meta-level is also editable. However, deep read reveals CAGE: CLOSED — the frozen LLM is the true generator, Python is the fixed format, and all modifications are within the LLM's training distribution. This matches blacklist pattern B13 (all agents are LLMs = all recombination within training distribution). The "metacognitive" label describes a content-level change (the meta-agent's Python code gets rewritten) not a format-level change. SGM provides a safety mechanism for self-modification but does not expand what is expressible. The field continues to advance search efficiency and safety within fixed representation formats, with no papers claiming runtime FORMAT expansion.
+
+## 2026-03-26 (DAILY_PATROL Day 2)
+- arxiv scanned: ~60, new: 7, relevant: 1, deeper_read: 2, not_relevant: 4, skipped(already read): ~20
+- GitHub scanned: ~15, new: 0, relevant: 0, skipped: ~8
+- Staleness: ~33% (~20/~60 results already in read logs)
+- Query evolution: none needed (staleness below 70%)
+- Blacklist variants found: 0
+- Cumulative: papers 57 logged, repos 19 logged
+
+### New papers found
+- **arxiv:2603.04010** "GAT for TT with Explicit Universe Polymorphism" (Bezem, Coquand, Dybjer, Escardó, LTT 2026) — DEEPER_READ: Generalized algebraic theories as initial models for level-indexed CwFs. Directly relevant to A.1 (IR transplant feasibility). Formalizes how universe polymorphism can be captured as initial model of a GAT, with level-indexed products and internally indexed universes.
+- **arxiv:2603.04014** "Non-Derivability Results in Polymorphic Dependent Type Theory" (Geuvers) — DEEPER_READ: Shows parametric quotient types not definable in λP2, stream coinduction unavailable, induction requires function extensionality. Establishes hard limits of impredicative encodings.
+- **arxiv:2603.20988** "Can we automatize scientific discovery in cognitive sciences?" — RELEVANT: States explicitly that "no search procedure can discover what the representation forbids." Task grammar expressibility bounds the discovery process. Directly echoes the RSI problem formulation.
+- **arxiv:2603.18073** "Continually self-improving AI" (Yang) — NOT: Synthetic data + training algorithm search within fixed LM architecture. Content modification.
+- **arxiv:2508.07932** "X-evolve" — NOT: Parametric program templates with score-based search. Fixed template format, variable parameters.
+- **arxiv:2602.06511** "Evolutionary Generation of Multi-Agent Systems" — NOT: Survey of agent representation choices, no format expansion mechanism.
+
+### Deep reads completed (Day 2 main work)
+
+#### Deep Read 1: arxiv:2502.20485 — Bounded First-Class Universe Levels (Chan et al.)
+FORMAL STRUCTURE EXTRACTION:
+  Old format:      Prenex level polymorphism — definitions abstract over levels at top, monomorphized at call sites
+  New format:      First-class levels — Level < ℓ is a type, level expressions are terms, level quantification subsumed by dependent Π
+  Transition op:   Internalize level ordering into type system via bounded level types (Level < k)
+  Became express.: Recursive definitions with level-varying recursive calls (e.g., incr : ∀k<ω. ℕ → 𝖴ω where incr k (succ n) = incr n [k+1]). Previously required monomorphization which fails for recursive level variation.
+  Computable:      YES — explicit syntax given (TTBFL), semantic model via CwFs mechanized in Agda using induction-recursion
+CAGE DIAGNOSIS:
+  Layer affected:  FORMAT_CHANGE — levels become first-class terms, not just syntactic annotations
+  Within-format:   NO — genuinely new: monomorphization provably fails for recursive level variation
+BLACKLIST CHECK:  CLEAR — not a variant of B01-B14
+TRANSPLANT SKETCH: Making grammar rule "levels" (meta-rule nesting depth, recursion depth) into first-class computable values in the RSI system. Currently max_depth is a fixed parameter. If depth became a first-class computable expression dependent on tree structure, trees could express depth-varying recursion. Requires: (1) depth type in ExprNode, (2) bounded depth quantification in grammar rules, (3) subject reduction proof for typing.
+VERDICT: STRUCTURAL_EXPANSION — genuine FORMAT_CHANGE. The mechanism of internalizing meta-level parameters as first-class terms is a well-understood type-theoretic technique with clear formal foundations.
+
+#### Deep Read 2: arxiv:2212.09060 — Parsing as a Lifting Problem (Melliès & Zeilberger)
+FORMAL STRUCTURE EXTRACTION:
+  Old format:      CFG = tuple (Σ, N, S, P) with string rewriting rules
+  New format:      CFG = functor of operads p: Free[S] → W[C] from free operad on species S into operad of spliced words
+  Transition op:   Reinterpret productions as operad morphisms; parsing becomes computing fiber p⁻¹(w)
+  Became express.: Grammars over arbitrary categories (not just free monoids), compositional parse trees via fibrational structure, Chomsky-Schützenberger theorem generalized to arbitrary categories
+  Computable:      YES — constructive (inductive characterization of parse tree sets, Proposition 2.11)
+CAGE DIAGNOSIS:
+  Layer affected:  Layer 3 (grammar representation itself reformulated)
+  Within-format:   The paper does not address grammar SELF-modification. The operadic framework provides a richer mathematical foundation for grammars but does not describe how a grammar could extend itself at runtime. The composition of spliced words (Proposition 2.9) enables hierarchical grammar assembly but this is a static operation.
+BLACKLIST CHECK:  CLEAR
+TRANSPLANT SKETCH: The operadic framework could formalize the meta-grammar layer: each meta-rule is an operation in an operad, meta-rule composition is operadic composition, and grammar expansion is extending the species S with new generators. This gives formal semantics to what the GrammarRuleComposer already does informally. However, this is a FORMALIZATION of existing capability, not an expansion of F_theo.
+VERDICT: NO_STRUCTURE_FOUND for F_theo expansion. The operadic framework is a mathematical reformulation of existing grammar concepts. It provides better formal foundations but does not identify a mechanism for runtime format change. The grammar remains fixed once defined; only its LANGUAGE is explored, not its own structure.
+
+#### Deep Read 3: arxiv:2512.16406 — Hypernetworks That Evolve Themselves (Self-Referential GHNs)
+FORMAL STRUCTURE EXTRACTION:
+  Old format:      Hypernetwork with fixed architecture generating policy parameters
+  New format:      Self-referential hypernetwork: stochastic module takes own computational graph as input, outputs delta-parameters for offspring
+  Transition op:   Self-referential weight generation: GHN(own_graph) → Δparams → offspring GHN
+  Became express.: Adaptive mutation rates as heritable traits, emergent exploration-exploitation cycling
+  Computable:      YES (implemented, evolutionary experiments on non-stationary tasks)
+CAGE DIAGNOSIS:
+  Layer affected:  Layer 2 (search strategy — mutation rate adaptation)
+  Within-format:   YES — architecture is explicitly fixed. Only parameter values change. The paper states "fixed architectures" for both policy and GHN. The self-referential loop modifies content (weights) not format (architecture).
+BLACKLIST CHECK:  Matches P05 partially ("more layers = more power" — self-referential nesting does not expand F_theo). Also resembles B12.14392 (Self-Referential Meta-Learning) — same fundamental approach (self-referential weight modification within fixed NN format).
+TRANSPLANT SKETCH: Not applicable. Fixed architecture = fixed F_theo.
+VERDICT: COMBINATORIAL_RECOMBINATION — content-level self-reference within fixed architecture. Adaptive mutation rates are F_eff (search efficiency), not F_theo (expressibility).
+
+#### Deep Read 4: arxiv:2603.04010 — GAT for TT with Explicit Universe Polymorphism (Bezem et al., LTT 2026)
+FORMAL STRUCTURE EXTRACTION:
+  Old format:      Martin-Löf TT with external tower of universes (fixed hierarchy U₀ : U₁ : U₂ : ...)
+  New format:      Level-indexed CwF with internal universe indexing and level-indexed products
+  Transition op:   Initial model characterization — the type theory IS the initial model of its GAT. Universe polymorphism captured via level-indexed Π types.
+  Became express.: Polymorphic definitions that quantify over universe levels internally, enabling uniform proofs across all levels without duplication
+  Computable:      YES — Agda mechanization exists (referenced from Kovács' TTFL work using IR)
+CAGE DIAGNOSIS:
+  Layer affected:  FORMAT_CHANGE — the relationship between type theory and its models is formalized as an initial algebra, making the format itself algebraically characterizable
+  Within-format:   The initial model characterization is a meta-level result about the type theory, not a mechanism within it. It tells us WHAT the type theory is (the initial model of a specific GAT) but does not provide a runtime mechanism for extending it.
+BLACKLIST CHECK:  CLEAR — purely mathematical, no implementation variant
+TRANSPLANT SKETCH: If the RSI system's grammar were characterized as the initial model of a GAT, then grammar extensions would correspond to GAT extensions (adding new sorts, operators, equations). This would formalize design space expansion as moving between initial models of progressively richer GATs. However, this is a mathematical characterization, not a computable procedure for generating the next GAT.
+VERDICT: NO_STRUCTURE_FOUND for direct F_theo expansion mechanism. The paper provides deep mathematical foundations (initial model semantics for universe-polymorphic type theories) but does not identify a computable procedure for self-extension. The key insight — type theories AS initial models — is relevant for formalizing what "design space expansion" means mathematically, but does not provide the expansion operation itself.
+
+### CAGE diagnostic summary (Day 2)
+Day 2 deep reads confirm a pattern: the mathematical foundations for understanding representation FORMAT change are well-developed (first-class universe levels, operadic grammar semantics, initial model characterizations) but none provide a COMPUTABLE PROCEDURE for a system to extend its own format from within. The closest is Chan et al.'s TTBFL, where making levels first-class allows expressions that were previously inexpressible (recursive level variation). This is a genuine FORMAT_CHANGE in the type-theoretic sense. The transplant to the RSI system would involve making depth/meta-level parameters into first-class computable values rather than fixed integers. This is added to the candidate archive for future synthesis consideration.
+
+Hypernetworks That Evolve Themselves (2512.16406) is confirmed CAGE: CLOSED — fixed architecture, content-only self-modification.
+
+No new STRUCTURAL_EXPANSION candidates surviving all filters.

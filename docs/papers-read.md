@@ -47,3 +47,9 @@
 [2026-03-26] arxiv:2510.02524 "Unraveling Syntax: How LMs Learn Context-Free Grammars" — VERDICT: RELEVANT
 [2026-03-26] arxiv:2506.09046 "Agentic Neural Networks: Self-Evolving via Textual Backpropagation" — VERDICT: NOT (content modification within fixed NN format)
 [2026-03-26] arxiv:2512.16406 "Hypernetworks That Evolve Themselves" — VERDICT: RELEVANT
+[2026-03-26] arxiv:2603.04010 "A Generalized Algebraic Theory for TT with Explicit Universe Polymorphism (Bezem, Coquand, Dybjer, Escardó)" — VERDICT: DEEPER (directly relevant to A.1 IR transplant)
+[2026-03-26] arxiv:2603.04014 "Non-Derivability Results in Polymorphic Dependent Type Theory (Geuvers)" — VERDICT: DEEPER (limits of impredicative encodings, relevant to A.1)
+[2026-03-26] arxiv:2603.20988 "Can we automatize scientific discovery in cognitive sciences?" — VERDICT: RELEVANT (states grammar expressibility bounds discovery)
+[2026-03-26] arxiv:2603.18073 "Continually self-improving AI (Yang)" — VERDICT: NOT (content modification within fixed LM format)
+[2026-03-26] arxiv:2508.07932 "X-evolve: Solution space evolution powered by LLMs" — VERDICT: NOT (parameter space search within fixed program template)
+[2026-03-26] arxiv:2602.06511 "Evolutionary Generation of Multi-Agent Systems" — VERDICT: NOT (representation choice survey, no format expansion)

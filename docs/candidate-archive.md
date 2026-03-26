@@ -58,3 +58,16 @@ Each entry: mechanism name, source, formal extraction, V1 status, date added.
 - **V1 potential:** LOW — inverse of LibraryLearner, likely F_eff
 - **Status:** NOT_IMPLEMENTED
 - **Date:** 2026-03-25
+
+### Candidate 8: First-Class Meta-Level Parameters (from Bounded Universe Levels)
+- **Source:** arxiv:2502.20485 (Chan et al., TTBFL), related to A.1 Induction-Recursion
+- **Old format:** ExprNode trees with max_depth as fixed integer parameter
+- **New format:** ExprNode trees where depth/meta-level is a first-class computable expression within the tree language
+- **Became expressible:** Recursive definitions with depth-varying recursive calls; trees that compute their own depth bounds contextually
+- **Transition op:** Internalize max_depth from external parameter to first-class bounded type (Depth < k) within tree expressions
+- **Computable:** YES in principle (TTBFL has explicit syntax, Agda mechanization exists via IR)
+- **V1 potential:** MEDIUM — genuine FORMAT_CHANGE (levels become terms), but may be isomorphic to simply using larger fixed depth at unlimited resources
+- **Status:** NOT_IMPLEMENTED — requires formal analysis of whether depth-as-first-class-value expands F_theo or is isomorphic to unbounded fixed depth
+- **Blacklist check:** CLEAR — not a variant of B01-B14
+- **Date:** 2026-03-26
+- **Flag:** NEEDS_ISOMORPHISM_ANALYSIS before implementation

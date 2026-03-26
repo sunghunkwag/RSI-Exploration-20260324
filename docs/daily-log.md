@@ -273,3 +273,68 @@ Patrol Day 2 should:
 1. Deep read arxiv:2502.20485 (Bounded First-Class Universe Levels) — directly relevant to A.1 Induction-Recursion transplant feasibility
 2. Deep read arxiv:2212.09060 (Parsing as lifting problem) — mathematical connection between grammars and operads relevant to H.8
 3. Check if arxiv:2512.16406 (Hypernetworks That Evolve Themselves) contains any genuine FORMAT_CHANGE
+
+---
+
+## 2026-03-26 — DAILY_PATROL Day 2
+
+### Monitoring
+- arxiv: ~60 scanned, 7 new, 1 relevant, 2 deeper_read, 4 not_relevant
+- GitHub: ~15 scanned, 0 new, 0 relevant
+- Staleness: ~33% (~20/~60 results already in read logs)
+- Query evolution: none needed (staleness below 70%)
+
+### Main work — Deep reads of 4 priority papers
+
+**1. arxiv:2502.20485 — Bounded First-Class Universe Levels (Chan et al.)**
+Full deep read completed. The paper internalizes universe levels as first-class terms with bounded types (Level < k). Key finding: prenex level polymorphism can be monomorphized, but recursive definitions with level-varying recursive calls CANNOT. First-class levels are genuinely more expressive. Semantic model uses CwFs + induction-recursion (Agda mechanization).
+- VERDICT: STRUCTURAL_EXPANSION — genuine FORMAT_CHANGE
+- Transplant potential: Making RSI system's max_depth into a first-class computable expression
+- Added as Candidate 8 in candidate-archive.md with NEEDS_ISOMORPHISM_ANALYSIS flag
+
+**2. arxiv:2212.09060 — Parsing as a Lifting Problem (Melliès & Zeilberger)**
+Full deep read completed. CFGs reformulated as operad functors p: Free[S] → W[C]. Parsing = computing fiber p⁻¹(w). Generalized Chomsky-Schützenberger theorem for arbitrary categories. Spliced word operads enable compositional parse trees.
+- VERDICT: NO_STRUCTURE_FOUND for F_theo expansion
+- The operadic framework formalizes grammar semantics but does not provide self-extension mechanism
+- Useful for mathematical formalization of meta-grammar layer, not for cage-breaking
+
+**3. arxiv:2512.16406 — Hypernetworks That Evolve Themselves (Self-Referential GHNs)**
+Full deep read completed. Self-referential weight generation: stochastic module takes own computational graph as input, outputs parameter deltas for offspring. Adaptive mutation rates emerge as heritable traits.
+- VERDICT: COMBINATORIAL_RECOMBINATION — CAGE: CLOSED
+- Architecture explicitly fixed. Content-only self-modification (parameter values, not structure)
+- Matches P05 (depth of nesting does not expand F_theo)
+
+**4. arxiv:2603.04010 — GAT for TT with Explicit Universe Polymorphism (Bezem et al., LTT 2026)**
+Full deep read completed. Type theories characterized as initial models of generalized algebraic theories. Level-indexed CwFs capture universe polymorphism. Connected to Voevodsky's initiality conjecture.
+- VERDICT: NO_STRUCTURE_FOUND for direct expansion mechanism
+- Provides mathematical characterization of what "design space expansion" means (moving between initial models of progressively richer GATs) but not a computable procedure for self-extension
+
+### Additional new papers logged (from monitoring)
+- arxiv:2603.20988 — States "no search procedure can discover what the representation forbids." Direct echo of RSI problem.
+- arxiv:2603.04014 — Non-derivability results: induction not provable without function extensionality in λP2. Hard limits of impredicative encodings.
+- arxiv:2603.18073, 2508.07932, 2602.06511 — All CAGE: CLOSED (content modification within fixed formats)
+
+### Bug fixes
+- Fixed NameError on main.py line 762: `d.dims[i]` → `self.dims[i]` in MAPElitesArchive.add_or_replace
+- Fixed GrammarRuleComposer.add_rule: existing rules' compatibility lists now updated when new rules are added
+- Tests: 32/33 pass (1 flaky random-bound test in mutation size)
+
+### Dedup stats
+- Papers read (cumulative): 57
+- Repos analyzed (cumulative): 19
+- Code fingerprints logged: 4
+- Blacklist violations caught: 0
+- Duplicate code prevented: 0
+- New candidates: 1 (Candidate 8: First-Class Meta-Level Parameters)
+
+### Assessment
+COMPLETE — Patrol Day 2.
+
+Key finding: The type-theoretic literature provides a clear formal framework for understanding representation expansion (first-class universe levels, initial model semantics). The one new candidate (Candidate 8) requires isomorphism analysis: at unlimited resources, is a system with first-class depth equivalent to one with unbounded fixed depth? If YES (isomorphic), it is F_eff only. If NO (the ability to COMPUTE depth bounds contextually enables strictly more functions), it is genuine F_theo expansion.
+
+### Next session focus
+Patrol Day 3 should:
+1. Perform isomorphism analysis for Candidate 8 — determine if first-class depth is F_theo or F_eff
+2. Deep read arxiv:2603.04014 (Non-Derivability) for implications on what encodings cannot achieve
+3. Follow citation chains from Bezem et al. (2603.04010) for newer work on initial model extensions
+4. Search for Dybjer/Setzer original IR papers and check if their finite axiomatization suggests a computable extension procedure
