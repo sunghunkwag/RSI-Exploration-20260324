@@ -19,13 +19,13 @@ Targets:
 
 All conditions use depth enforcement (FIX 1) — this is a bug fix, not a feature.
 """
-import sys, random, numpy as np
-sys.path.insert(0, '/sessions/exciting-compassionate-cray/repos/RSI-Exploration-20260324')
+import os, sys, random, numpy as np
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from main import (
     VocabularyLayer, GrammarLayer, MetaGrammarLayer, MAPElitesArchive,
     ResourceBudget, CostGroundingLoop, SelfImprovementEngine,
     LibraryLearner, OpFitnessTracker,
-    quintic_fitness, septic_fitness, symbolic_regression_fitness
+    quintic_fitness, septic_fitness, sine_approximation_fitness
 )
 
 NUM_SEEDS = 10
@@ -129,7 +129,7 @@ r1 = ablation("x^5 (quintic)", quintic_fitness, max_depth=2, gens=200)
 r2 = ablation("x^7 (septic)", septic_fitness, max_depth=2, gens=200)
 
 # Test 3: sin(x) (original — must not regress)
-r3 = ablation("sin(x) (original)", symbolic_regression_fitness, max_depth=3, gens=100)
+r3 = ablation("sin(x) (original)", sine_approximation_fitness, max_depth=3, gens=100)
 
 # Final summary
 print(f"\n{'='*72}")
