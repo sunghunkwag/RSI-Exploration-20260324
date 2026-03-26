@@ -53,6 +53,8 @@ def run_hard_experiment(seed, generations, pop_size, expansion_interval,
         library_min_depth=2,
         library_min_freq=2,
         library_max_additions=3,
+        pruning_window=10,
+        pruning_threshold=0.10,
     )
 
     base_ops = {op.name for op in engine.vocab.all_ops()}

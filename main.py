@@ -255,8 +255,6 @@ class VocabularyLayer:
 
     def __init__(self):
         self._ops: Dict[str, PrimitiveOp] = {}
-        self._default_op_names: Set[str] = set()
-        self._dynamic_op_usage: Dict[str, int] = {}
         self._register_defaults()
 
     def _register_defaults(self):
@@ -297,24 +295,38 @@ class VocabularyLayer:
         ]
         for op in defaults:
             self._ops[op.name] = op
-            self._default_op_names.add(op.name)
 
     def register(self, op: PrimitiveOp):
         self._ops[op.name] = op
         logger.info(f"Vocabulary expanded: +{op.name} (arity={op.arity}, cost={op.cost})")
 
-    def remove(self, name: str):
-        if name in self._ops:
-            logger.info(f"Vocabulary pruned: -{name} (due to low usage)")
-            del self._ops[name]
-            if name in self._dynamic_op_usage:
-                del self._dynamic_op_usage[name]
-
     def get(self, name: str) -> Optional[PrimitiveOp]:
         return self._ops.get(name)
 
+    def unregister(self, name: str) -> bool:
+        """Remove a dynamically generated op from the vocabulary.
+
+        Only removes non-default ops (those added by meta-grammar or library learning).
+        Returns True if the op was removed, False if it was a default op or not found.
+        """
+        if name not in self._ops:
+            return False
+        # Protect default ops from removal
+        if not (name.startswith("lib_") or name.startswith("poly_")
+                or "_then_" in name or "_of_" in name or "_with_" in name):
+            return False
+        del self._ops[name]
+        logger.info(f"Vocabulary pruned: -{name}")
+        return True
+
     def all_ops(self) -> List[PrimitiveOp]:
         return list(self._ops.values())
+
+    def generated_op_names(self) -> List[str]:
+        """Return names of all dynamically generated (non-default) ops."""
+        return [name for name in self._ops
+                if (name.startswith("lib_") or name.startswith("poly_")
+                    or "_then_" in name or "_of_" in name or "_with_" in name)]
 
     def random_op(self, max_arity: int = 2) -> PrimitiveOp:
         candidates = [op for op in self._ops.values() if op.arity <= max_arity]
@@ -863,6 +875,8 @@ class MetaGrammarLayer:
         # Mechanism 5 Tier 2: Rule interaction tracker
         self.interaction_tracker = RuleInteractionTracker()
         self._last_best_fitness: float = 0.0
+        # Mechanism 3 (Error-guided): Store residual error distribution from best elite
+        self._residual_errors: List[Tuple[float, float]] = []
         self._register_default_meta_rules()
 
     def _register_default_meta_rules(self):
@@ -903,61 +917,18 @@ class MetaGrammarLayer:
             specificity=3,
             base_priority=1.5,
         ))
-        # Rule 5: Error-guided Meta-mutation
+        # Rule 5: Error-guided op creation — Mechanism 3 (Error-guided Meta-mutation)
+        # Creates ops that specifically target the x-intervals where residual error
+        # is highest. Fires when residual error data is available and fitness is stalling.
         self._meta_rules.append(MetaRuleEntry(
             name="_meta_error_guided_op",
             rule_fn=self._meta_error_guided_op,
-            preconditions=lambda s: s.get("fitness_plateau", False),
-            specificity=4,
-            base_priority=2.5,
+            preconditions=lambda s: (len(self._residual_errors) > 0
+                                     and s.get("fitness_plateau", False)
+                                     and s.get("best_fitness", 0) > 0.1),
+            specificity=2,
+            base_priority=1.8,
         ))
-
-    def _meta_error_guided_op(self) -> Optional[PrimitiveOp]:
-        if getattr(self, '_current_elite_trees', None) is None: return None
-        
-        residuals = None
-        for tree in self._current_elite_trees:
-            if hasattr(tree, 'custom_residuals'):
-                residuals = tree.custom_residuals
-                break
-                
-        if not residuals: return None
-        
-        worst_interval = max(residuals.items(), key=lambda x: x[1])[0]
-        ops = self.vocab.all_ops()
-        binary = [op for op in ops if op.arity == 2 and not isinstance(op, PolymorphicOp) and "lib_" not in op.name]
-        unary = [op for op in ops if op.arity == 1 and not isinstance(op, PolymorphicOp) and "lib_" not in op.name]
-        
-        if not binary or not unary: return None
-        
-        h = random.choice(binary)
-        f = random.choice(unary)
-        
-        name_safed = worst_interval.replace('[', '').replace(']', '').replace(',', '_').replace('/', '_').replace(' ', '').replace('-', 'n')
-        name = f"PolyOp_ErrorTarget_{name_safed}_{random.randint(100, 999)}"
-        
-        if "npi_npi_2" in name:
-            condition = lambda a: -math.pi <= a <= -math.pi/2
-        elif "npi_2_0" in name:
-            condition = lambda a: -math.pi/2 <= a <= 0
-        elif "0_pi_2" in name:
-            condition = lambda a: 0 <= a <= math.pi/2
-        else:
-            condition = lambda a: math.pi/2 <= a <= math.pi
-            
-        def new_fn(a, _h=h, _f=f, _cond=condition):
-            try:
-                if _cond(a):
-                    return float(_h(_f(a), a))
-                return float(a)
-            except Exception:
-                return 0.0
-                
-        new_op = PrimitiveOp(name, 1, new_fn, h.cost + f.cost + 0.5, f"Error-guided: targets {worst_interval}")
-        self.vocab.register(new_op)
-        self._expansion_history.append(f"error_guided_op:{name}")
-        logger.info(f"Meta-grammar: Error-guided operator '{name}' created for {worst_interval}")
-        return new_op
 
     def _meta_create_polymorphic_op(self) -> Optional[PolymorphicOp]:
         """
@@ -1058,6 +1029,76 @@ class MetaGrammarLayer:
             self._expansion_history.append(f"grammar_compose:intensity_adaptive:{composed.name}")
             logger.info(f"Meta-grammar: Created intensity-adaptive grammar rule '{composed.name}'")
             return composed
+
+    def _meta_error_guided_op(self) -> Optional[PrimitiveOp]:
+        """
+        Mechanism 3: Error-guided Meta-mutation.
+
+        Analyzes residual error distribution from the best elite and creates
+        new ops that specifically target high-error x-intervals.
+
+        Strategy:
+        1. Find x-intervals with highest residual error
+        2. Create bump/basis functions centered on those intervals
+        3. These become new ops that the evolutionary loop can compose
+           to patch the approximation where it's weakest.
+
+        Avoids creating duplicate bumps near existing ones (within 0.5 distance).
+        """
+        if not self._residual_errors:
+            return None
+
+        # Get worst error points
+        worst = [e for e in self._residual_errors if e[1] >= 0.05]
+        if not worst:
+            return None
+
+        # Find existing bump centers to avoid duplicates
+        existing_centers = []
+        for op in self.vocab.all_ops():
+            if op.name.startswith("bump_x"):
+                try:
+                    center_str = op.name.split("_x")[1].split("_w")[0]
+                    existing_centers.append(float(center_str))
+                except (IndexError, ValueError):
+                    pass
+
+        # Find the worst point that's not near an existing bump
+        x_center = None
+        error_mag = None
+        for x, err in worst:
+            if not any(abs(x - c) < 0.5 for c in existing_centers):
+                x_center = x
+                error_mag = err
+                break
+
+        if x_center is None:
+            return None  # All high-error points already covered
+
+        # Create a localized correction basis function: gaussian bump
+        width = 0.8
+        new_name = f"bump_x{x_center:.2f}_w{width:.1f}"
+
+        if self.vocab.get(new_name) is not None:
+            return None
+
+        def bump_fn(a, _c=x_center, _w=width):
+            diff = a - _c
+            return math.exp(-(diff * diff) / (2.0 * _w * _w))
+
+        new_op = PrimitiveOp(
+            name=new_name, arity=1, fn=bump_fn, cost=1.5,
+            description=f"Error-guided bump at x={x_center:.2f} (err={error_mag:.3f})"
+        )
+        self.vocab.register(new_op)
+        self._expansion_history.append(f"error_guided:{new_name}")
+        logger.info(f"Meta-grammar: Error-guided op '{new_name}' "
+                     f"targeting x={x_center:.2f} (residual={error_mag:.3f})")
+        return new_op
+
+    def update_residual_errors(self, errors: List[Tuple[float, float]]):
+        """Update the residual error distribution from the current best elite."""
+        self._residual_errors = errors
 
     def _meta_compose_new_op(self) -> Optional[PrimitiveOp]:
         """
@@ -1261,7 +1302,6 @@ class MetaGrammarLayer:
         6. Record outcome with fitness delta for adaptive learning.
         7. Update ConditionalGrammarRule archive states.
         """
-        self._current_elite_trees = elite_trees
         state = self._compute_archive_state(archive=archive, elite_trees=elite_trees)
         current_best = state.get("best_fitness", 0.0)
 
@@ -1453,7 +1493,7 @@ class LibraryLearner:
         new_ops = []
         for count, subtree in candidates[: self.max_library_additions]:
             fp = subtree.fingerprint()
-            lib_name = f"PolyOp_Encapsulated_{fp[:6]}"
+            lib_name = f"lib_{fp}"
             if self.vocab.get(lib_name) is not None:
                 continue  # Already extracted this subtree
 
@@ -1799,6 +1839,10 @@ class SelfImprovementEngine:
         cost_loop: CostGroundingLoop,
         fitness_fn: Callable,
         expansion_interval: int = 10,
+        pruning_window: int = 20,
+        pruning_threshold: float = 0.05,
+        target_fn: Callable = None,
+        target_xs: np.ndarray = None,
     ):
         self.vocab = vocab
         self.grammar = grammar
@@ -1809,6 +1853,195 @@ class SelfImprovementEngine:
         self.expansion_interval = expansion_interval
         self.generation = 0
         self.history: List[dict] = []
+        # Mechanism 1: Operator Pruning — track usage of generated ops in elites
+        self.pruning_window = pruning_window  # generations between pruning checks
+        self.pruning_threshold = pruning_threshold  # fraction of elites that must use an op
+        self._op_usage_history: Dict[str, List[int]] = {}  # op_name -> [gen_last_seen_in_elite]
+        # Mechanism 3: Error-guided meta-mutation — target function for residual analysis
+        self._target_fn = target_fn
+        self._target_xs = target_xs
+
+    def _collect_tree_ops(self, node: ExprNode) -> set:
+        """Collect all op names used in a tree."""
+        ops = {node.op_name}
+        for c in node.children:
+            ops |= self._collect_tree_ops(c)
+        return ops
+
+    def _prune_unused_ops(self):
+        """
+        Mechanism 1: Operator Pruning.
+
+        Scan elite archive for usage of dynamically generated ops.
+        Remove any generated op that is not used by at least pruning_threshold
+        fraction of elite trees. Ops created within the last pruning_window
+        generations get a grace period (not pruned immediately).
+        """
+        gen_ops = set(self.vocab.generated_op_names())
+        if not gen_ops:
+            return
+
+        elites = list(self.archive._grid.values())
+        if not elites:
+            return
+
+        # Count how many elites use each generated op
+        op_usage_count: Dict[str, int] = {op: 0 for op in gen_ops}
+        for entry in elites:
+            tree_ops = self._collect_tree_ops(entry.tree)
+            for op in gen_ops:
+                if op in tree_ops:
+                    op_usage_count[op] += 1
+
+        # Track first-seen generation for grace period
+        for op in gen_ops:
+            if op not in self._op_usage_history:
+                self._op_usage_history[op] = self.generation
+
+        # Prune ops below threshold (with grace period)
+        threshold_count = max(1, int(len(elites) * self.pruning_threshold))
+        pruned = []
+        for op_name, usage in op_usage_count.items():
+            age = self.generation - self._op_usage_history.get(op_name, 0)
+            if usage < threshold_count and age >= self.pruning_window:
+                if self.vocab.unregister(op_name):
+                    pruned.append(op_name)
+                    self._op_usage_history.pop(op_name, None)
+
+        if pruned:
+            logger.info(f"Operator pruning: removed {len(pruned)} unused ops: "
+                         "%s" % ", ".join(pruned[:5]))
+
+    def _update_error_guidance(self):
+        """
+        Mechanism 3: Feed residual errors from best elite to meta-grammar.
+        """
+        if self._target_fn is None or self._target_xs is None:
+            return
+
+        # Find best elite
+        best_entry = max(self.archive._grid.values(),
+                         key=lambda e: e.grounded_fitness, default=None)
+        if best_entry is None:
+            return
+
+        ctx = EvalContext(self_fingerprint=best_entry.tree.fingerprint(),
+                          env_tag="error_guide")
+        errors = _compute_residual_errors(
+            best_entry.tree, self.vocab, self._target_fn,
+            self._target_xs, ctx
+        )
+        self.meta_grammar.update_residual_errors(errors)
+
+    def _elite_subtree_compression(self):
+        """
+        Mechanism 4: Elite Sub-tree Compression (fitness-aware).
+
+        Different from LibraryLearner (frequency-based):
+        - Selects subtrees from TOP fitness elites only (top 20%)
+        - Weights candidates by parent elite fitness, not just frequency
+        - Ensures extracted ops come from proven high-fitness solutions
+        """
+        elites = sorted(self.archive._grid.values(),
+                        key=lambda e: e.grounded_fitness, reverse=True)
+        if len(elites) < 3:
+            return
+
+        # Only use top 20% of elites
+        top_k = max(2, len(elites) // 5)
+        top_elites = elites[:top_k]
+
+        # Collect subtrees weighted by parent fitness
+        subtree_scores: Dict[str, Tuple[float, ExprNode, int]] = {}
+        for entry in top_elites:
+            for sub in self._collect_subtrees(entry.tree):
+                if sub.depth() >= 2 and sub.size() >= 3:
+                    fp = sub.fingerprint()
+                    if fp in subtree_scores:
+                        score, exemplar, count = subtree_scores[fp]
+                        subtree_scores[fp] = (
+                            score + entry.grounded_fitness,
+                            exemplar,
+                            count + 1
+                        )
+                    else:
+                        subtree_scores[fp] = (
+                            entry.grounded_fitness,
+                            copy.deepcopy(sub),
+                            1
+                        )
+
+        # Filter: must appear in at least 2 top elites
+        candidates = [
+            (score, exemplar, count)
+            for fp, (score, exemplar, count) in subtree_scores.items()
+            if count >= 2
+        ]
+        if not candidates:
+            return
+
+        # Sort by fitness-weighted score (not just frequency)
+        candidates.sort(key=lambda c: c[0] * c[2], reverse=True)
+
+        # Extract top 2 as new ops
+        extracted = 0
+        for score, subtree, count in candidates[:2]:
+            fp = subtree.fingerprint()
+            lib_name = f"elite_{fp}"
+            if self.vocab.get(lib_name) is not None:
+                continue
+
+            has_input = self._subtree_has_input(subtree)
+            arity = 1 if has_input else 0
+
+            def _make_eval_fn(st, voc):
+                def _fn(*args):
+                    x_val = args[0] if args else 0.0
+                    return self._eval_subtree(st, voc, x_val)
+                return _fn
+
+            fn = _make_eval_fn(subtree, self.vocab)
+            new_op = PrimitiveOp(
+                name=lib_name, arity=arity, fn=fn,
+                cost=subtree.size() * 0.4,
+                description=f"Elite-compressed: depth={subtree.depth()}, "
+                            f"fitness_score={score:.3f}, count={count}"
+            )
+            self.vocab.register(new_op)
+            extracted += 1
+            logger.info(f"Elite compression: '{lib_name}' "
+                         f"(fitness_score={score:.3f}, count={count})")
+
+    def _collect_subtrees(self, node: ExprNode) -> List[ExprNode]:
+        result = [node]
+        for c in node.children:
+            result.extend(self._collect_subtrees(c))
+        return result
+
+    def _subtree_has_input(self, node: ExprNode) -> bool:
+        if node.op_name == "input_x":
+            return True
+        return any(self._subtree_has_input(c) for c in node.children)
+
+    def _eval_subtree(self, node: ExprNode, vocab: VocabularyLayer, x: float) -> float:
+        if node.op_name == "input_x":
+            return x
+        op = vocab.get(node.op_name)
+        if op is None:
+            return 0.0
+        if op.arity == 0:
+            try:
+                return float(op())
+            except Exception:
+                return 0.0
+        child_vals = [self._eval_subtree(c, vocab, x) for c in node.children]
+        if len(child_vals) < op.arity:
+            child_vals.extend([0.0] * (op.arity - len(child_vals)))
+        try:
+            result = op(*child_vals[:op.arity])
+            return float(result) if math.isfinite(float(result)) else 0.0
+        except Exception:
+            return 0.0
 
     def step(self, population_size: int = 20) -> dict:
         self.generation += 1
@@ -1826,35 +2059,24 @@ class SelfImprovementEngine:
                 inserted += 1
             best_gen = max(best_gen, grounded)
 
-        # Operator Pruning (Mechanism 2)
-        elites = sorted(list(self.archive._grid.values()), key=lambda e: e.grounded_fitness, reverse=True)
-        top_5_percent = elites[:max(1, int(len(elites) * 0.05))]
-        active_ops = set()
-        for e in top_5_percent:
-            for n in self.grammar._collect_nodes(e.tree):
-                active_ops.add(n.op_name)
-        
-        prune_threshold = 5  # N generations rolling window
-        to_remove = []
-        for op_name, op in list(self.vocab._ops.items()):
-            if op_name not in self.vocab._default_op_names:
-                if op_name in active_ops:
-                    self.vocab._dynamic_op_usage[op_name] = 0
-                else:
-                    self.vocab._dynamic_op_usage[op_name] = self.vocab._dynamic_op_usage.get(op_name, 0) + 1
-                    if self.vocab._dynamic_op_usage[op_name] > prune_threshold:
-                        to_remove.append(op_name)
-        
-        for op_name in to_remove:
-            self.vocab.remove(op_name)
-
         expansion_action = None
         if self.generation % self.expansion_interval == 0:
+            # Mechanism 3: Update error guidance before expansion
+            self._update_error_guidance()
+
             # Gather elite trees for library learning
             elite_trees = [e.tree for e in self.archive._grid.values()]
             expansion_action = self.meta_grammar.expand_design_space(
                 elite_trees=elite_trees, archive=self.archive
             )
+
+            # Mechanism 4: Elite sub-tree compression (every other expansion)
+            if self.generation % (self.expansion_interval * 2) == 0:
+                self._elite_subtree_compression()
+
+        # Mechanism 1: Operator Pruning (every pruning_window generations)
+        if self.generation % self.pruning_window == 0:
+            self._prune_unused_ops()
 
         record = {
             "generation": self.generation,
@@ -1940,6 +2162,50 @@ def _eval_tree(node: ExprNode, vocab: VocabularyLayer, x: float,
         return 0.0
 
 
+def _parsimony_penalty(tree: ExprNode, vocab: VocabularyLayer,
+                       raw_fitness: float = 1.0,
+                       alpha: float = 0.002, beta: float = 0.001) -> float:
+    """
+    Mechanism 2: Dynamic parsimony pressure.
+
+    Penalizes tree complexity (node count) and vocabulary bloat.
+    Returns a value in [0, 1) that is subtracted from raw fitness.
+
+    The penalty scales with raw_fitness so it only becomes significant
+    for already-good solutions (tie-breaking), not for weak ones.
+
+    penalty = raw_fitness * (alpha * node_count + beta * vocab_excess)
+
+    where base_vocab_size = 13 (number of default ops including self_encode).
+    The penalty is clamped to [0, 0.1] to avoid excessive reduction.
+    """
+    node_count = tree.size()
+    vocab_excess = max(0, vocab.size - 13)  # 13 default ops
+    raw_penalty = alpha * node_count + beta * vocab_excess
+    penalty = raw_fitness * raw_penalty
+    return min(penalty, 0.1)
+
+
+def _compute_residual_errors(tree: ExprNode, vocab: VocabularyLayer,
+                             target_fn: Callable, xs: np.ndarray,
+                             ctx: EvalContext = None) -> List[Tuple[float, float]]:
+    """
+    Mechanism 3: Compute per-point residual errors for error-guided meta-mutation.
+
+    Returns list of (x, residual_error) tuples sorted by error descending.
+    """
+    errors = []
+    for x in xs:
+        try:
+            predicted = _eval_tree(tree, vocab, x, ctx)
+            target = target_fn(x)
+            errors.append((x, abs(predicted - target)))
+        except Exception:
+            errors.append((x, 1e6))
+    errors.sort(key=lambda e: e[1], reverse=True)
+    return errors
+
+
 def symbolic_regression_fitness(tree: ExprNode, vocab: VocabularyLayer,
                                 ctx: EvalContext = None) -> float:
     """Target: f(x) = x^2 + 2x + 1  over [-5, 5]."""
@@ -1947,7 +2213,8 @@ def symbolic_regression_fitness(tree: ExprNode, vocab: VocabularyLayer,
         ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="symreg")
     xs = np.linspace(-5, 5, 20)
     error = sum(abs(_eval_tree(tree, vocab, x, ctx) - (x**2 + 2*x + 1)) for x in xs)
-    return 1.0 / (1.0 + min(error / len(xs), 1e6))
+    raw = 1.0 / (1.0 + min(error / len(xs), 1e6))
+    return max(0.0, raw - _parsimony_penalty(tree, vocab, raw))
 
 
 def sine_approximation_fitness(tree: ExprNode, vocab: VocabularyLayer,
@@ -1957,29 +2224,13 @@ def sine_approximation_fitness(tree: ExprNode, vocab: VocabularyLayer,
         ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="sine")
     xs = np.linspace(-math.pi, math.pi, 30)
     error = 0.0
-    
-    intervals = {"[-pi, -pi/2]": 0.0, "[-pi/2, 0]": 0.0, "[0, pi/2]": 0.0, "[pi/2, pi]": 0.0}
-
     for x in xs:
         try:
-            residual = abs(_eval_tree(tree, vocab, x, ctx) - math.sin(x))
-            error += residual
-            if x < -math.pi/2: intervals["[-pi, -pi/2]"] += residual
-            elif x < 0: intervals["[-pi/2, 0]"] += residual
-            elif x < math.pi/2: intervals["[0, pi/2]"] += residual
-            else: intervals["[pi/2, pi]"] += residual
+            error += abs(_eval_tree(tree, vocab, x, ctx) - math.sin(x))
         except Exception:
             error += 1e6
-
-    tree.custom_residuals = intervals
-
-    # Parsimony Pressure: Complexity Penalty
-    base_vocab_size = len(getattr(vocab, '_default_op_names', vocab._ops))
-    expanded_vocab_size = max(0, vocab.size - base_vocab_size)
-    node_count = tree.size()
-    penalty = (0.01 * node_count) + (0.05 * expanded_vocab_size)
-
-    return 1.0 / (1.0 + min(error / len(xs), 1e6) + penalty)
+    raw = 1.0 / (1.0 + min(error / len(xs), 1e6))
+    return max(0.0, raw - _parsimony_penalty(tree, vocab, raw))
 
 
 def absolute_value_fitness(tree: ExprNode, vocab: VocabularyLayer,
@@ -1994,7 +2245,8 @@ def absolute_value_fitness(tree: ExprNode, vocab: VocabularyLayer,
             error += abs(_eval_tree(tree, vocab, x, ctx) - abs(x))
         except Exception:
             error += 1e6
-    return 1.0 / (1.0 + min(error / len(xs), 1e6))
+    raw = 1.0 / (1.0 + min(error / len(xs), 1e6))
+    return max(0.0, raw - _parsimony_penalty(tree, vocab, raw))
 
 
 def cubic_fitness(tree: ExprNode, vocab: VocabularyLayer,
@@ -2009,7 +2261,8 @@ def cubic_fitness(tree: ExprNode, vocab: VocabularyLayer,
             error += abs(_eval_tree(tree, vocab, x, ctx) - (x**3 - x))
         except Exception:
             error += 1e6
-    return 1.0 / (1.0 + min(error / len(xs), 1e6))
+    raw = 1.0 / (1.0 + min(error / len(xs), 1e6))
+    return max(0.0, raw - _parsimony_penalty(tree, vocab, raw))
 
 
 FITNESS_REGISTRY: Dict[str, Callable] = {
@@ -2050,6 +2303,8 @@ def build_rsi_system(
     similarity_threshold: float = 0.85,
     use_vm_backend: bool = False,
     vm_fitness_name: str = None,
+    pruning_window: int = 20,
+    pruning_threshold: float = 0.05,
 ) -> SelfImprovementEngine:
     """
     Factory function to construct a complete RSI system.
@@ -2075,6 +2330,8 @@ def build_rsi_system(
                               above this threshold are rejected to force exploration.
         use_vm_backend: if True, use Omega VM backend fitness functions
         vm_fitness_name: name of VM fitness function (if use_vm_backend=True)
+        pruning_window: generations between operator pruning checks
+        pruning_threshold: fraction of elites that must use an op to keep it
     """
     if fitness_fn is None:
         if use_vm_backend:
@@ -2086,6 +2343,23 @@ def build_rsi_system(
                 fitness_fn = FITNESS_REGISTRY.get(fitness_name, symbolic_regression_fitness)
         else:
             fitness_fn = FITNESS_REGISTRY.get(fitness_name, symbolic_regression_fitness)
+
+    # Determine target function and sample points for error-guided meta-mutation
+    target_fn = None
+    target_xs = None
+    resolved_name = fitness_name
+    if fitness_fn == sine_approximation_fitness or fitness_name == "sine_approximation":
+        target_fn = math.sin
+        target_xs = np.linspace(-math.pi, math.pi, 30)
+    elif fitness_fn == symbolic_regression_fitness or fitness_name == "symbolic_regression":
+        target_fn = lambda x: x**2 + 2*x + 1
+        target_xs = np.linspace(-5, 5, 20)
+    elif fitness_fn == absolute_value_fitness or fitness_name == "absolute_value":
+        target_fn = abs
+        target_xs = np.linspace(-5, 5, 30)
+    elif fitness_fn == cubic_fitness or fitness_name == "cubic":
+        target_fn = lambda x: x**3 - x
+        target_xs = np.linspace(-3, 3, 30)
 
     vocab = VocabularyLayer()
     grammar = GrammarLayer(vocab, max_depth=max_depth)
@@ -2112,6 +2386,10 @@ def build_rsi_system(
         vocab=vocab, grammar=grammar, meta_grammar=meta_grammar,
         archive=archive, cost_loop=cost_loop, fitness_fn=fitness_fn,
         expansion_interval=expansion_interval,
+        pruning_window=pruning_window,
+        pruning_threshold=pruning_threshold,
+        target_fn=target_fn,
+        target_xs=target_xs,
     )
 
 
