@@ -255,7 +255,12 @@ class VocabularyLayer:
 
     def __init__(self):
         self._ops: Dict[str, PrimitiveOp] = {}
+        self._fitness_tracker = None
         self._register_defaults()
+
+    def set_fitness_tracker(self, tracker):
+        """Set an OpFitnessTracker for fitness-weighted op sampling."""
+        self._fitness_tracker = tracker
 
     def _register_defaults(self):
         R = OpType.REAL
@@ -313,6 +318,7 @@ class VocabularyLayer:
             return False
         # Protect default ops from removal
         if not (name.startswith("lib_") or name.startswith("poly_")
+                or name.startswith("elite_")
                 or "_then_" in name or "_of_" in name or "_with_" in name):
             return False
         del self._ops[name]
@@ -326,10 +332,15 @@ class VocabularyLayer:
         """Return names of all dynamically generated (non-default) ops."""
         return [name for name in self._ops
                 if (name.startswith("lib_") or name.startswith("poly_")
+                    or name.startswith("elite_")
                     or "_then_" in name or "_of_" in name or "_with_" in name)]
 
     def random_op(self, max_arity: int = 2) -> PrimitiveOp:
         candidates = [op for op in self._ops.values() if op.arity <= max_arity]
+        if self._fitness_tracker and len(candidates) > 1:
+            names = [op.name for op in candidates]
+            weights = self._fitness_tracker.sampling_weights(names)
+            return random.choices(candidates, weights=weights, k=1)[0]
         return random.choice(candidates)
 
     @property
@@ -504,10 +515,18 @@ class GrammarLayer:
         return result
 
     def mutate(self, tree: ExprNode) -> ExprNode:
-        return random.choice(self._composition_rules[1:])(tree)
+        for _ in range(5):  # retry budget
+            candidate = random.choice(self._composition_rules[1:])(tree)
+            if candidate.depth() <= self.max_depth:
+                return candidate
+        return copy.deepcopy(tree)  # give up, return original unchanged
 
     def crossover(self, t1: ExprNode, t2: ExprNode) -> ExprNode:
-        return self._rule_subtree_crossover(t1, t2)
+        for _ in range(5):
+            candidate = self._rule_subtree_crossover(t1, t2)
+            if candidate.depth() <= self.max_depth:
+                return candidate
+        return copy.deepcopy(t1)
 
     def add_rule(self, rule_fn: Callable):
         self._composition_rules.append(rule_fn)
@@ -1396,11 +1415,13 @@ class LibraryLearner:
         min_subtree_depth: int = 2,
         min_frequency: int = 2,
         max_library_additions: int = 3,
+        fitness_tracker: "OpFitnessTracker" = None,
     ):
         self.vocab = vocab
         self.min_subtree_depth = min_subtree_depth
         self.min_frequency = min_frequency
         self.max_library_additions = max_library_additions
+        self.fitness_tracker = fitness_tracker
         self._learned_ops: List[str] = []
 
     def _collect_subtrees(self, node: ExprNode) -> List[ExprNode]:
@@ -1519,6 +1540,52 @@ class LibraryLearner:
     @property
     def num_learned(self) -> int:
         return len(self._learned_ops)
+
+
+class OpFitnessTracker:
+    """Track per-op fitness contribution for credit assignment.
+
+    For each dynamically generated op, tracks mean fitness of elites that
+    USE the op vs elites that DON'T. Used to:
+    (a) bias random_op selection toward high-fitness ops
+    (b) prune ops with negative fitness contribution
+    """
+
+    def __init__(self):
+        self._op_fitness: Dict[str, List[float]] = {}  # op_name -> [fitness values when used]
+        self._baseline_fitness: List[float] = []  # fitness of elites NOT using generated ops
+
+    def record(self, tree: ExprNode, fitness: float, generated_ops: set):
+        """Record which ops contributed to this fitness."""
+        tree_ops = self._collect_ops(tree)
+        used_gen = tree_ops & generated_ops
+        if used_gen:
+            for op in used_gen:
+                self._op_fitness.setdefault(op, []).append(fitness)
+        else:
+            self._baseline_fitness.append(fitness)
+
+    def op_score(self, op_name: str) -> float:
+        """Mean fitness of elites using this op minus baseline."""
+        if op_name not in self._op_fitness:
+            return 0.0
+        op_mean = sum(self._op_fitness[op_name]) / len(self._op_fitness[op_name])
+        if not self._baseline_fitness:
+            return op_mean
+        base_mean = sum(self._baseline_fitness) / len(self._baseline_fitness)
+        return op_mean - base_mean
+
+    def sampling_weights(self, op_names: List[str]) -> List[float]:
+        """Return sampling weights proportional to op fitness contribution."""
+        scores = [max(0.1, self.op_score(n) + 1.0) for n in op_names]
+        total = sum(scores)
+        return [s / total for s in scores]
+
+    def _collect_ops(self, node: ExprNode) -> set:
+        ops = {node.op_name}
+        for c in node.children:
+            ops |= self._collect_ops(c)
+        return ops
 
 
 # ---------------------------------------------------------------------------
@@ -1843,6 +1910,7 @@ class SelfImprovementEngine:
         pruning_threshold: float = 0.05,
         target_fn: Callable = None,
         target_xs: np.ndarray = None,
+        fitness_tracker: "OpFitnessTracker" = None,
     ):
         self.vocab = vocab
         self.grammar = grammar
@@ -1853,6 +1921,7 @@ class SelfImprovementEngine:
         self.expansion_interval = expansion_interval
         self.generation = 0
         self.history: List[dict] = []
+        self.fitness_tracker = fitness_tracker
         # Mechanism 1: Operator Pruning — track usage of generated ops in elites
         self.pruning_window = pruning_window  # generations between pruning checks
         self.pruning_threshold = pruning_threshold  # fraction of elites that must use an op
@@ -2058,6 +2127,9 @@ class SelfImprovementEngine:
             if self.archive.try_insert(entry):
                 inserted += 1
             best_gen = max(best_gen, grounded)
+            if self.fitness_tracker is not None:
+                gen_ops = set(self.vocab.generated_op_names())
+                self.fitness_tracker.record(child, grounded, gen_ops)
 
         expansion_action = None
         if self.generation % self.expansion_interval == 0:
@@ -2265,11 +2337,35 @@ def cubic_fitness(tree: ExprNode, vocab: VocabularyLayer,
     return max(0.0, raw - _parsimony_penalty(tree, vocab, raw))
 
 
+def quintic_fitness(tree: ExprNode, vocab: VocabularyLayer,
+                    ctx: EvalContext = None) -> float:
+    """Target: x^5 over [-2, 2] at max_depth=2 — requires depth amplification."""
+    if ctx is None:
+        ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="quintic")
+    xs = np.linspace(-2, 2, 30)
+    error = sum(abs(_eval_tree(tree, vocab, x, ctx) - x**5) for x in xs)
+    raw = 1.0 / (1.0 + min(error / len(xs), 1e6))
+    return max(0.0, raw - _parsimony_penalty(tree, vocab, raw))
+
+
+def septic_fitness(tree: ExprNode, vocab: VocabularyLayer,
+                   ctx: EvalContext = None) -> float:
+    """Target: x^7 over [-2, 2] — harder depth amplification test."""
+    if ctx is None:
+        ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="septic")
+    xs = np.linspace(-2, 2, 30)
+    error = sum(abs(_eval_tree(tree, vocab, x, ctx) - x**7) for x in xs)
+    raw = 1.0 / (1.0 + min(error / len(xs), 1e6))
+    return max(0.0, raw - _parsimony_penalty(tree, vocab, raw))
+
+
 FITNESS_REGISTRY: Dict[str, Callable] = {
     "symbolic_regression": symbolic_regression_fitness,
     "sine_approximation": sine_approximation_fitness,
     "absolute_value": absolute_value_fitness,
     "cubic": cubic_fitness,
+    "quintic": quintic_fitness,
+    "septic": septic_fitness,
 }
 
 
@@ -2360,6 +2456,12 @@ def build_rsi_system(
     elif fitness_fn == cubic_fitness or fitness_name == "cubic":
         target_fn = lambda x: x**3 - x
         target_xs = np.linspace(-3, 3, 30)
+    elif fitness_fn == quintic_fitness or fitness_name == "quintic":
+        target_fn = lambda x: x**5
+        target_xs = np.linspace(-2, 2, 30)
+    elif fitness_fn == septic_fitness or fitness_name == "septic":
+        target_fn = lambda x: x**7
+        target_xs = np.linspace(-2, 2, 30)
 
     vocab = VocabularyLayer()
     grammar = GrammarLayer(vocab, max_depth=max_depth)
