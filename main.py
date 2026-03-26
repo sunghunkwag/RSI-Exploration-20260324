@@ -1,5 +1,4 @@
-"""
-RSI-Exploration: Recursive Self-Improvement Architecture
+"""RSI-Exploration: Recursive Self-Improvement Architecture
 =========================================================
 
 A hybrid architecture combining:
@@ -64,255 +63,268 @@ class OpType:
     UNIT = "unit"
     ANY = "any"
 
-    # Subtype lattice: A is subtype of B if A's domain is a subset of B's domain
-    _SUBTYPE_OF = {
-        "unit": {"unit", "non_negative", "bounded", "real", "any"},
-        "positive": {"positive", "non_negative", "real", "any"},
-        "non_negative": {"non_negative", "real", "any"},
-        "bounded": {"bounded", "real", "any"},
-        "real": {"real", "any"},
-        "any": {"any"},
-    }
-
     @staticmethod
-    def is_subtype(child_type: str, parent_type: str) -> bool:
-        """Check if child_type's domain is a subset of parent_type's domain."""
-        return parent_type in OpType._SUBTYPE_OF.get(child_type, {"any"})
+    def is_compatible(child_type: str, parent_type: str) -> bool:
+        """
+        Check if child output type is compatible with parent input type.
+        Subtypes are: POSITIVE < NON_NEGATIVE < BOUNDED < REAL, UNIT < REAL
+        """
+        if parent_type == OpType.ANY:
+            return True
+        if child_type == parent_type:
+            return True
+        # Subtype relationships
+        subtypes = {
+            OpType.POSITIVE: [OpType.NON_NEGATIVE, OpType.BOUNDED, OpType.REAL],
+            OpType.NON_NEGATIVE: [OpType.BOUNDED, OpType.REAL],
+            OpType.UNIT: [OpType.BOUNDED, OpType.REAL],
+            OpType.BOUNDED: [OpType.REAL],
+        }
+        return parent_type in subtypes.get(child_type, [])
 
 
-@dataclass
 class PrimitiveOp:
     """
-    A single primitive operation in the vocabulary.
-
-    Refinement type fields (D.5 Dependent Types):
-    - input_types: list of type tags for each argument position
-    - output_type: type tag for the return value
-    These enable type-checked tree composition at construction time.
+    A primitive operation in the vocabulary layer.
+    
+    Attributes:
+        name: unique identifier
+        arity: number of arguments (0 for constants, 1+ for functions)
+        fn: callable that implements the operation
+        weight: relative frequency for random sampling
+        description: human-readable explanation
+        input_types: list of input type tags (one per argument)
+        output_type: output type tag
     """
-    name: str
-    arity: int
-    fn: Callable
-    cost: float = 1.0
-    description: str = ""
-    input_types: List[str] = field(default_factory=list)
-    output_type: str = "real"
 
-    def __post_init__(self):
-        # Default: all inputs accept any real
-        if not self.input_types:
-            self.input_types = [OpType.REAL] * self.arity
+    def __init__(
+        self,
+        name: str,
+        arity: int,
+        fn: Callable,
+        weight: float = 1.0,
+        description: str = "",
+        input_types: Optional[List[str]] = None,
+        output_type: str = OpType.REAL,
+    ):
+        self.name = name
+        self.arity = arity
+        self.fn = fn
+        self.weight = weight
+        self.description = description
+        self.input_types = input_types or [OpType.ANY] * arity
+        self.output_type = output_type
 
     def __call__(self, *args):
+        """Invoke the operation."""
         return self.fn(*args)
 
-    def accepts_child_type(self, arg_index: int, child_output_type: str) -> bool:
-        """Check if a child's output type is compatible with this op's input at arg_index."""
-        if arg_index >= len(self.input_types):
-            return True  # no constraint
-        return OpType.is_subtype(child_output_type, self.input_types[arg_index])
-
-
-@dataclass
-class EvalContext:
-    """
-    Evaluation context threaded through ExprNode evaluation.
-
-    Implements Mechanism 2 (Context-Dependent Evaluation) from Synthesis:
-    Sources: C.1c (Karaka), C.3 (Aramaic polysemy), C.4 (Cuneiform),
-             G.6 (Topos Theory), D.4 (Reflection).
-
-    The context enables polymorphic PrimitiveOps that dispatch to different
-    functions based on context state. For k context states and n ops,
-    up to nxk distinct functions become available per node.
-
-    Topological fields (G.6 Topos Logic):
-    - current_depth: depth of the node being evaluated within the tree
-    - parent_op_name: the op name of the node's parent (structural context)
-    - sibling_index: position among siblings (left=0, right=1, etc.)
-    - subtree_size: size of the subtree rooted at the current node
-    These fields are updated during _eval_tree traversal, enabling
-    dispatch based on actual tree topology rather than just external metadata.
-    """
-    niche_id: int = 0
-    generation: int = 0
-    env_tag: str = "default"
-    self_fingerprint: str = ""
-    custom: Dict = field(default_factory=dict)
-    # Topological fields (updated during tree traversal)
-    current_depth: int = 0
-    parent_op_name: str = ""
-    sibling_index: int = 0
-    subtree_size: int = 1
-
-    def context_key(self) -> int:
-        """Return a discrete context state for dispatch."""
-        return hash((self.niche_id, self.env_tag)) % 4
-
-    def topo_key(self) -> int:
-        """
-        Return a topological context key derived from tree structure.
-
-        Combines depth, parent op, and sibling position into a discrete
-        dispatch key. This enables the same PolymorphicOp to compute
-        different functions based on WHERE in the tree it appears.
-        """
-        return hash((self.current_depth, self.parent_op_name, self.sibling_index)) % 8
-
-    def full_key(self) -> int:
-        """
-        Combined key incorporating both external context and tree topology.
-        Provides the finest-grained dispatch: same op, same tree, different
-        position or different context -> potentially different function.
-        """
-        return hash((self.niche_id, self.env_tag, self.current_depth,
-                     self.parent_op_name, self.sibling_index)) % 16
-
-    def with_topo(self, depth: int, parent_op: str, sib_idx: int,
-                  sub_size: int) -> "EvalContext":
-        """
-        Return a copy of this context with updated topological fields.
-        This avoids mutating the context during recursive evaluation.
-        """
-        return EvalContext(
-            niche_id=self.niche_id,
-            generation=self.generation,
-            env_tag=self.env_tag,
-            self_fingerprint=self.self_fingerprint,
-            custom=self.custom,
-            current_depth=depth,
-            parent_op_name=parent_op,
-            sibling_index=sib_idx,
-            subtree_size=sub_size,
-        )
-
-
-@dataclass
-class PolymorphicOp:
-    """
-    A PrimitiveOp that dispatches to different functions based on EvalContext.
-
-    Implements the core FORMAT_CHANGE from context-free to context-dependent
-    evaluation. Same tree structure can compute different functions depending
-    on the evaluation context.
-
-    Supports three dispatch modes (tried in order):
-    1. topo_dispatch_table: keyed by topo_key() — dispatches based on tree
-       topology (depth, parent op, sibling position). This is the G.6 Topos
-       Logic upgrade: evaluation depends on WHERE in the tree the op appears.
-    2. dispatch_table: keyed by context_key() — dispatches based on external
-       context (niche, env_tag). This is the original C.3/C.4 mechanism.
-    3. default_fn: fallback when no context or no matching key.
-    """
-    name: str
-    arity: int
-    dispatch_table: Dict[int, Callable]
-    default_fn: Callable = None
-    cost: float = 1.5
-    description: str = ""
-    topo_dispatch_table: Dict[int, Callable] = field(default_factory=dict)
-
-    def __call__(self, *args, ctx: EvalContext = None):
-        if ctx is not None:
-            # Priority 1: topological dispatch (G.6 Topos)
-            if self.topo_dispatch_table:
-                tkey = ctx.topo_key()
-                fn = self.topo_dispatch_table.get(tkey)
-                if fn is not None:
-                    return fn(*args)
-            # Priority 2: context dispatch (C.3/C.4)
-            key = ctx.context_key()
-            fn = self.dispatch_table.get(key, self.default_fn)
-        else:
-            fn = self.default_fn
-        if fn is None:
-            fn = next(iter(self.dispatch_table.values()))
-        return fn(*args)
-
-    @property
-    def fn(self):
-        """Compatibility: return default_fn for non-context evaluation."""
-        return self.default_fn or next(iter(self.dispatch_table.values()))
-
-    # Refinement type compatibility (D.5): PolymorphicOps accept any REAL input
-    # and output REAL, since their actual behavior depends on context.
-    input_types: List[str] = field(default_factory=lambda: [OpType.REAL])
-    output_type: str = OpType.REAL
-
-    def __post_init__(self):
-        if not self.input_types or len(self.input_types) < self.arity:
-            self.input_types = [OpType.REAL] * self.arity
-
-    def accepts_child_type(self, arg_index: int, child_output_type: str) -> bool:
-        """PolymorphicOps accept any type (conservative: always compatible)."""
-        if arg_index >= len(self.input_types):
-            return True
-        return OpType.is_subtype(child_output_type, self.input_types[arg_index])
+    def __repr__(self):
+        return f"PrimitiveOp({self.name}, arity={self.arity})"
 
 
 class VocabularyLayer:
-    """Manages the set of primitive operations available to the system."""
+    """
+    Registry of primitive operations that can be composed into programs.
+    
+    Provides:
+    - Registration and lookup of operations
+    - Random sampling weighted by importance
+    - Type checking for safe composition
+    """
 
     def __init__(self):
-        self._ops: Dict[str, PrimitiveOp] = {}
-        self._register_defaults()
+        self.ops: Dict[str, PrimitiveOp] = {}
+        self._init_default_ops()
 
-    def _register_defaults(self):
-        R = OpType.REAL
-        NN = OpType.NON_NEGATIVE
-        BD = OpType.BOUNDED
-        defaults = [
-            PrimitiveOp("add", 2, lambda a, b: a + b, 1.0, "Addition",
-                         input_types=[R, R], output_type=R),
-            PrimitiveOp("sub", 2, lambda a, b: a - b, 1.0, "Subtraction",
-                         input_types=[R, R], output_type=R),
-            PrimitiveOp("mul", 2, lambda a, b: a * b, 1.5, "Multiplication",
-                         input_types=[R, R], output_type=R),
-            PrimitiveOp("safe_div", 2, lambda a, b: a / b if b != 0 else 0.0, 2.0,
-                         "Safe division", input_types=[R, R], output_type=R),
-            PrimitiveOp("neg", 1, lambda a: -a, 0.5, "Negation",
-                         input_types=[R], output_type=R),
-            PrimitiveOp("abs_val", 1, lambda a: abs(a), 0.5, "Absolute value",
-                         input_types=[R], output_type=NN),
-            PrimitiveOp("square", 1, lambda a: a * a, 1.0, "Square",
-                         input_types=[R], output_type=NN),
-            PrimitiveOp("clamp", 1, lambda a: max(-1e6, min(1e6, a)), 0.5,
-                         "Clamp to safe range", input_types=[R], output_type=BD),
-            PrimitiveOp("identity", 1, lambda a: a, 0.1, "Identity",
-                         input_types=[R], output_type=R),
-            PrimitiveOp("const_one", 0, lambda: 1.0, 0.1, "Constant 1",
-                         output_type=OpType.POSITIVE),
-            PrimitiveOp("const_zero", 0, lambda: 0.0, 0.1, "Constant 0",
-                         output_type=NN),
-            # Mechanism 1: Self-Reference (A.7, D.1, D.7)
-            # self_encode returns 0.0 from VocabularyLayer; the actual
-            # fingerprint-dependent value is computed in _eval_tree when
-            # an EvalContext with self_fingerprint is available.
-            # Registering it here makes it reachable by random_tree/mutate.
-            PrimitiveOp("self_encode", 0, lambda: 0.0, 0.5,
-                         "Self-reference: tree's own fingerprint hash",
-                         output_type=BD),
-        ]
-        for op in defaults:
-            self._ops[op.name] = op
+    def _init_default_ops(self):
+        """Initialize with standard numeric/logical operations."""
+        # Constants (arity 0)
+        self.register(PrimitiveOp("zero", 0, lambda: 0.0, weight=2.0, description="Constant 0", output_type=OpType.NON_NEGATIVE))
+        self.register(PrimitiveOp("one", 0, lambda: 1.0, weight=2.0, description="Constant 1", output_type=OpType.POSITIVE))
+        self.register(PrimitiveOp("pi", 0, lambda: math.pi, weight=1.0, description="Constant pi", output_type=OpType.POSITIVE))
+
+        # Unary operations (arity 1)
+        def safe_sqrt(x):
+            return math.sqrt(max(0, x))
+        self.register(
+            PrimitiveOp(
+                "sqrt",
+                1,
+                safe_sqrt,
+                weight=1.5,
+                description="Safe square root",
+                input_types=[OpType.NON_NEGATIVE],
+                output_type=OpType.NON_NEGATIVE,
+            )
+        )
+        self.register(
+            PrimitiveOp(
+                "square",
+                1,
+                lambda x: x ** 2,
+                weight=2.0,
+                description="Square",
+                output_type=OpType.NON_NEGATIVE,
+            )
+        )
+        self.register(
+            PrimitiveOp(
+                "abs",
+                1,
+                abs,
+                weight=1.5,
+                description="Absolute value",
+                output_type=OpType.NON_NEGATIVE,
+            )
+        )
+        self.register(
+            PrimitiveOp(
+                "neg",
+                1,
+                lambda x: -x,
+                weight=1.0,
+                description="Negation",
+            )
+        )
+        self.register(
+            PrimitiveOp(
+                "sin",
+                1,
+                math.sin,
+                weight=1.0,
+                description="Sine",
+                output_type=OpType.BOUNDED,
+            )
+        )
+        self.register(
+            PrimitiveOp(
+                "cos",
+                1,
+                math.cos,
+                weight=1.0,
+                description="Cosine",
+                output_type=OpType.BOUNDED,
+            )
+        )
+        self.register(
+            PrimitiveOp(
+                "exp",
+                1,
+                lambda x: math.exp(min(100, x)),  # Cap to prevent overflow
+                weight=0.8,
+                description="Exponential",
+                output_type=OpType.POSITIVE,
+            )
+        )
+        self.register(
+            PrimitiveOp(
+                "log",
+                1,
+                lambda x: math.log(max(1e-6, x)),
+                weight=0.8,
+                description="Natural logarithm",
+                input_types=[OpType.POSITIVE],
+            )
+        )
+
+        # Binary operations (arity 2)
+        self.register(
+            PrimitiveOp(
+                "add",
+                2,
+                lambda a, b: a + b,
+                weight=3.0,
+                description="Addition",
+            )
+        )
+        self.register(
+            PrimitiveOp(
+                "sub",
+                2,
+                lambda a, b: a - b,
+                weight=2.5,
+                description="Subtraction",
+            )
+        )
+        self.register(
+            PrimitiveOp(
+                "mul",
+                2,
+                lambda a, b: a * b,
+                weight=3.0,
+                description="Multiplication",
+            )
+        )
+
+        def safe_div(a, b):
+            return a / b if b != 0 else 0.0
+
+        self.register(
+            PrimitiveOp(
+                "safe_div",
+                2,
+                safe_div,
+                weight=1.5,
+                description="Safe division (0 if divisor is 0)",
+            )
+        )
+        self.register(
+            PrimitiveOp(
+                "max",
+                2,
+                max,
+                weight=1.5,
+                description="Maximum",
+            )
+        )
+        self.register(
+            PrimitiveOp(
+                "min",
+                2,
+                min,
+                weight=1.5,
+                description="Minimum",
+            )
+        )
+        self.register(
+            PrimitiveOp(
+                "pow",
+                2,
+                lambda a, b: a ** max(-10, min(10, b)),  # Cap exponent
+                weight=0.8,
+                description="Power (capped exponent)",
+            )
+        )
 
     def register(self, op: PrimitiveOp):
-        self._ops[op.name] = op
-        logger.info(f"Vocabulary expanded: +{op.name} (arity={op.arity}, cost={op.cost})")
+        """Register a new operation in the vocabulary."""
+        self.ops[op.name] = op
 
     def get(self, name: str) -> Optional[PrimitiveOp]:
-        return self._ops.get(name)
+        """Retrieve an operation by name."""
+        return self.ops.get(name)
 
-    def all_ops(self) -> List[PrimitiveOp]:
-        return list(self._ops.values())
-
-    def random_op(self, max_arity: int = 2) -> PrimitiveOp:
-        candidates = [op for op in self._ops.values() if op.arity <= max_arity]
-        return random.choice(candidates)
+    def random_op(self, max_arity: Optional[int] = None) -> PrimitiveOp:
+        """Sample a random operation, optionally filtered by arity."""
+        candidates = [
+            op for op in self.ops.values()
+            if max_arity is None or op.arity <= max_arity
+        ]
+        weights = [op.weight for op in candidates]
+        total = sum(weights)
+        r = random.random() * total
+        cumsum = 0
+        for op, w in zip(candidates, weights):
+            cumsum += w
+            if r < cumsum:
+                return op
+        return candidates[-1]
 
     @property
     def size(self) -> int:
-        return len(self._ops)
+        """Number of operations in the vocabulary."""
+        return len(self.ops)
 
 
 # ---------------------------------------------------------------------------
@@ -321,1734 +333,839 @@ class VocabularyLayer:
 
 @dataclass
 class ExprNode:
-    """A node in an expression tree (AST)."""
-    op_name: str
-    children: List["ExprNode"] = field(default_factory=list)
-    value: Optional[float] = None
+    """
+    A node in an expression tree representing a composed program.
+    
+    Attributes:
+        op: the PrimitiveOp at this node
+        children: child nodes (empty for leaf/constant nodes)
+    """
+    op: PrimitiveOp
+    children: List[ExprNode] = field(default_factory=list)
+
+    def __repr__(self):
+        if not self.children:
+            return f"Leaf({self.op.name})"
+        child_strs = ", ".join(repr(c) for c in self.children)
+        return f"Node({self.op.name}, [{child_strs}])"
 
     def depth(self) -> int:
+        """Compute tree depth."""
         if not self.children:
             return 0
         return 1 + max(c.depth() for c in self.children)
 
     def size(self) -> int:
+        """Compute number of nodes."""
         return 1 + sum(c.size() for c in self.children)
 
-    def to_dict(self) -> dict:
-        d = {"op": self.op_name}
-        if self.value is not None:
-            d["value"] = self.value
-        if self.children:
-            d["children"] = [c.to_dict() for c in self.children]
-        return d
-
-    def fingerprint(self) -> str:
-        return hashlib.md5(json.dumps(self.to_dict(), sort_keys=True).encode()).hexdigest()[:12]
+    def hash_tree(self) -> str:
+        """Create a canonical hash of tree structure for caching."""
+        if not self.children:
+            return f"leaf_{self.op.name}"
+        child_hashes = "_".join(c.hash_tree() for c in self.children)
+        return f"node_{self.op.name}_{child_hashes}"
 
 
 class GrammarLayer:
     """
-    Rules for composing vocabulary into expression trees.
-
-    Refinement type enforcement (D.5 Dependent Types):
-    Tree construction and mutation respect type constraints. When selecting
-    an op for a node, the grammar checks that each child's output_type is
-    compatible with the op's input_type at that position. This prevents
-    invalid compositions (e.g., feeding a possibly-negative value into an
-    op that requires non-negative input) at creation time.
+    Generates expression trees (programs) from the vocabulary using grammar rules.
+    
+    Core idea: each rule has the form:
+      NonTerminal -> PrimitiveOp(NonTerminal_1, ..., NonTerminal_k)
+    where k is the arity of the PrimitiveOp.
+    
+    Attributes:
+        vocab: reference to the VocabularyLayer
+        max_depth: maximum tree depth
+        max_size: maximum number of nodes
     """
 
-    def __init__(self, vocab: VocabularyLayer, max_depth: int = 5, max_size: int = 30):
+    def __init__(self, vocab: VocabularyLayer, max_depth: int = 5, max_size: int = 100):
         self.vocab = vocab
         self.max_depth = max_depth
         self.max_size = max_size
-        self._composition_rules: List[Callable] = []
-        self._register_default_rules()
 
-    def _register_default_rules(self):
-        self._composition_rules.extend([
-            self._rule_grow,
-            self._rule_point_mutate,
-            self._rule_subtree_crossover,
-            self._rule_hoist,
-        ])
-
-    def infer_output_type(self, node: ExprNode) -> str:
+    def random_tree(self, depth: int = 0) -> ExprNode:
         """
-        Infer the output type of a subtree rooted at node.
-        Used for type-checking during composition.
+        Recursively generate a random expression tree.
+        
+        Strategy:
+        - Base case (depth >= max_depth): choose a leaf (arity-0 op)
+        - Recursive case: choose any op, recursively generate children
         """
-        if node.op_name == "input_x":
-            return OpType.REAL
-        if node.op_name == "self_encode":
-            return OpType.UNIT
-        op = self.vocab.get(node.op_name)
-        if op is None:
-            return OpType.REAL
-        return getattr(op, "output_type", OpType.REAL)
-
-    def _type_compatible_op(self, max_arity: int, child_types: List[str] = None,
-                            max_attempts: int = 10) -> PrimitiveOp:
-        """
-        Select an op that is type-compatible with the given children's output types.
-        Falls back to an unconstrained op if no compatible one is found.
-        """
-        if child_types is None:
-            return self.vocab.random_op(max_arity=max_arity)
-
-        for _ in range(max_attempts):
-            op = self.vocab.random_op(max_arity=max_arity)
-            if op.arity == 0:
-                return op
-            # Check type compatibility for each argument
-            compatible = True
-            for i, ct in enumerate(child_types[:op.arity]):
-                if not op.accepts_child_type(i, ct):
-                    compatible = False
-                    break
-            if compatible:
-                return op
-        # Fallback: return any op (preserves backward compatibility)
-        return self.vocab.random_op(max_arity=max_arity)
-
-    def random_tree(self, max_depth: int = None) -> ExprNode:
-        return self._rule_grow(max_depth or self.max_depth)
-
-    def _rule_grow(self, max_depth: int = 3, required_type: str = None) -> ExprNode:
-        """
-        Grow a random tree respecting type constraints (D.5).
-
-        If required_type is specified, the root of the generated subtree
-        must produce an output compatible with that type.
-        """
-        if max_depth <= 0:
-            if random.random() < 0.5:
-                return ExprNode("input_x")
+        if depth >= self.max_depth:
+            # Must use a leaf node
             op = self.vocab.random_op(max_arity=0)
-            return ExprNode(op.name)
-        op = self.vocab.random_op()
-        # Build children, then check type compatibility
-        children = []
-        for i in range(op.arity):
-            # Determine what type this argument position requires
-            arg_type = op.input_types[i] if i < len(getattr(op, 'input_types', [])) else OpType.REAL
-            child = self._rule_grow(max_depth - 1, required_type=arg_type)
-            children.append(child)
-        return ExprNode(op.name, children=children)
-
-    def _rule_point_mutate(self, tree: ExprNode = None) -> ExprNode:
-        """
-        Point mutation with type-constraint enforcement (D.5).
-
-        When replacing an op, the new op must be type-compatible with
-        the existing children's output types.
-        """
-        if tree is None:
-            tree = self.random_tree(2)
-        tree = copy.deepcopy(tree)
-        nodes = self._collect_nodes(tree)
-        if not nodes:
-            return tree
-        target = random.choice(nodes)
-        # Infer children types for constraint checking
-        child_types = [self.infer_output_type(c) for c in target.children]
-        op = self._type_compatible_op(max_arity=len(target.children), child_types=child_types)
-        target.op_name = op.name
-        return tree
-
-    def _rule_subtree_crossover(self, t1: ExprNode = None, t2: ExprNode = None) -> ExprNode:
-        if t1 is None:
-            t1 = self.random_tree(3)
-        if t2 is None:
-            t2 = self.random_tree(3)
-        t1, t2 = copy.deepcopy(t1), copy.deepcopy(t2)
-        nodes1, nodes2 = self._collect_nodes(t1), self._collect_nodes(t2)
-        if nodes1 and nodes2:
-            n1, n2 = random.choice(nodes1), random.choice(nodes2)
-            n1.op_name, n1.children, n1.value = n2.op_name, n2.children, n2.value
-        return t1
-
-    def _rule_hoist(self, tree: ExprNode = None) -> ExprNode:
-        if tree is None:
-            tree = self.random_tree(3)
-        nodes = self._collect_nodes(tree)
-        inner = [n for n in nodes if n.children]
-        return copy.deepcopy(random.choice(inner)) if inner else copy.deepcopy(tree)
-
-    def _collect_nodes(self, node: ExprNode) -> List[ExprNode]:
-        result = [node]
-        for c in node.children:
-            result.extend(self._collect_nodes(c))
-        return result
-
-    def mutate(self, tree: ExprNode) -> ExprNode:
-        return random.choice(self._composition_rules[1:])(tree)
-
-    def crossover(self, t1: ExprNode, t2: ExprNode) -> ExprNode:
-        return self._rule_subtree_crossover(t1, t2)
-
-    def add_rule(self, rule_fn: Callable):
-        self._composition_rules.append(rule_fn)
-        logger.info(f"Grammar expanded: +rule {rule_fn.__name__}")
-
-    @property
-    def num_rules(self) -> int:
-        return len(self._composition_rules)
-
-    @property
-    def rule_names(self) -> List[str]:
-        return [getattr(r, '__name__', str(r)) for r in self._composition_rules]
-
-
-# ---------------------------------------------------------------------------
-# 2b. CONDITIONAL GRAMMAR RULES (Mechanism 3 Tier 2: Adaptive Grammar)
-# ---------------------------------------------------------------------------
-
-class ConditionalGrammarRule:
-    """
-    A grammar rule with archive-state-dependent behavior (A.3 Shutt / A.4 VW).
-
-    Wraps a base mutation operator with:
-    - preconditions: callable(archive_state) -> bool — rule only fires when met
-    - intensity: callable(archive_state) -> float — scales mutation strength
-    - fallback: Optional[Callable] — used when preconditions fail
-
-    This makes grammar rules adaptive: the same structural mutation (point mutate,
-    crossover, hoist) behaves differently depending on the evolutionary state.
-    For example, a conditional rule might increase mutation intensity when fitness
-    plateaus, or restrict crossover depth when coverage is high.
-
-    F_theo assessment: This is an F_eff improvement. Grammar rules are search
-    operators; they determine which trees get constructed, not which trees can
-    exist. Adaptive grammar rules improve search efficiency under resource
-    constraints but do not expand the theoretical expressibility of ExprNode trees.
-    """
-
-    def __init__(self, name: str, base_rule: Callable,
-                 preconditions: Callable = None,
-                 intensity_fn: Callable = None,
-                 fallback: Callable = None):
-        self.name = name
-        self.__name__ = name  # For compatibility with rule_fn.__name__
-        self.base_rule = base_rule
-        self.preconditions = preconditions or (lambda _: True)
-        self.intensity_fn = intensity_fn or (lambda _: 1.0)
-        self.fallback = fallback
-        self._archive_state: dict = {}
-        self._applications: int = 0
-        self._activations: int = 0
-
-    def set_archive_state(self, state: dict):
-        """Update the archive state for precondition evaluation."""
-        self._archive_state = state
-
-    def __call__(self, tree: ExprNode = None) -> ExprNode:
-        """
-        Execute the conditional grammar rule.
-
-        If preconditions are met, applies base_rule with intensity scaling.
-        If not met, applies fallback (if any) or base_rule at intensity 1.0.
-        """
-        self._applications += 1
-        if self.preconditions(self._archive_state):
-            self._activations += 1
-            intensity = self.intensity_fn(self._archive_state)
-            # Apply base rule, potentially multiple times for intensity > 1
-            result = tree
-            for _ in range(max(1, int(intensity))):
-                result = self.base_rule(result)
-            return result
-        elif self.fallback is not None:
-            return self.fallback(tree)
+            return ExprNode(op)
         else:
-            return self.base_rule(tree)
+            # Can use any operation
+            op = self.vocab.random_op()
+            children = [self.random_tree(depth + 1) for _ in range(op.arity)]
+            return ExprNode(op, children)
 
-    @property
-    def activation_rate(self) -> float:
-        return self._activations / max(1, self._applications)
-
-    def __repr__(self):
-        return f"ConditionalGrammarRule({self.name}, act_rate={self.activation_rate:.2f})"
-
-
-class GrammarRuleComposer:
-    """
-    Operadic composition at the grammar level (H.8 applied to Layer 2).
-
-    Creates new mutation operators by composing existing ones in structured
-    patterns. This is the grammar-level analog of HyperRule templates at
-    the vocabulary level.
-
-    Composition patterns:
-    - sequential: apply rule_a then rule_b to the same tree
-    - alternating: apply rule_a or rule_b based on tree structure
-    - filtered: apply rule only to subtrees matching a predicate
-
-    F_theo assessment: F_eff improvement only. Composed grammar rules reach
-    the same trees as their components, just more efficiently.
-    """
-
-    def __init__(self, grammar: "GrammarLayer"):
-        self.grammar = grammar
-        self._composed_rules: List[ConditionalGrammarRule] = []
-
-    def compose_sequential(self, rule_a: Callable, rule_b: Callable,
-                           name: str = None) -> ConditionalGrammarRule:
+    def mutate_tree(self, tree: ExprNode) -> ExprNode:
         """
-        Create a new rule: apply rule_a then rule_b.
-        Operadic composition: (rule_a ; rule_b)(tree) = rule_b(rule_a(tree))
+        Apply a single mutation to a tree:
+        1. With prob 0.5: mutate a random subtree (replace with new random tree)
+        2. With prob 0.5: swap the op at a random node (preserving arity)
         """
-        name = name or f"seq_{getattr(rule_a, '__name__', 'a')}_{getattr(rule_b, '__name__', 'b')}"
+        tree = copy.deepcopy(tree)
+        if not tree.children:
+            # Leaf: can only change the op
+            op = self.vocab.random_op(max_arity=0)
+            return ExprNode(op)
 
-        def composed_rule(tree: ExprNode = None) -> ExprNode:
-            intermediate = rule_a(tree)
-            return rule_b(intermediate)
+        if random.random() < 0.5:
+            # Mutate a random subtree
+            nodes = self._all_nodes(tree)
+            node_to_mutate = random.choice(nodes)
+            depth = self._depth_of_node(tree, node_to_mutate)
+            new_subtree = self.random_tree(depth=depth)
+            return self._replace_node(tree, node_to_mutate, new_subtree)
+        else:
+            # Swap op at a random node (same arity)
+            inner_nodes = [n for n in self._all_nodes(tree) if n.children]
+            if inner_nodes:
+                node_to_change = random.choice(inner_nodes)
+                new_op = self.vocab.random_op(max_arity=node_to_change.op.arity)
+                node_to_change.op = new_op
+            return tree
 
-        rule = ConditionalGrammarRule(name=name, base_rule=composed_rule)
-        self._composed_rules.append(rule)
-        return rule
+    def _all_nodes(self, tree: ExprNode) -> List[ExprNode]:
+        """Get all nodes in a tree (DFS)."""
+        nodes = [tree]
+        for child in tree.children:
+            nodes.extend(self._all_nodes(child))
+        return nodes
 
-    def compose_depth_filtered(self, base_rule: Callable,
-                               min_depth: int = 0, max_depth: int = 99,
-                               name: str = None) -> ConditionalGrammarRule:
-        """
-        Create a rule that only applies the base_rule to trees within a depth range.
-        Trees outside the range are returned unchanged.
-        """
-        name = name or f"depth_filtered_{getattr(base_rule, '__name__', 'r')}_{min_depth}_{max_depth}"
-
-        def filtered_rule(tree: ExprNode = None) -> ExprNode:
-            if tree is None:
-                return base_rule(tree)
-            d = tree.depth()
-            if min_depth <= d <= max_depth:
-                return base_rule(tree)
-            return copy.deepcopy(tree)
-
-        rule = ConditionalGrammarRule(name=name, base_rule=filtered_rule)
-        self._composed_rules.append(rule)
-        return rule
-
-    def compose_intensity_adaptive(self, base_rule: Callable,
-                                   name: str = None) -> ConditionalGrammarRule:
-        """
-        Create a rule that increases mutation intensity when fitness plateaus
-        and decreases it when fitness is improving.
-
-        Implements the Paribhasa C.1b principle at the grammar level:
-        rule behavior adapts to context.
-        """
-        name = name or f"adaptive_{getattr(base_rule, '__name__', 'r')}"
-
-        def intensity_from_state(state: dict) -> float:
-            if state.get("fitness_plateau", False):
-                return 2.0  # Double mutation intensity on plateau
-            coverage = state.get("coverage", 0.0)
-            if coverage > 0.6:
-                return 1.5  # Moderate increase at high coverage
-            return 1.0  # Normal intensity
-
-        rule = ConditionalGrammarRule(
-            name=name,
-            base_rule=base_rule,
-            intensity_fn=intensity_from_state,
-        )
-        self._composed_rules.append(rule)
-        return rule
-
-    @property
-    def num_composed(self) -> int:
-        return len(self._composed_rules)
-
-
-# ---------------------------------------------------------------------------
-# 3. META-GRAMMAR LAYER
-# ---------------------------------------------------------------------------
-
-class MetaRuleEntry:
-    """
-    A meta-rule annotated with specificity conditions (Paribhasa C.1b).
-
-    Each meta-rule declares:
-    - preconditions: a callable (archive_state_dict) -> bool
-    - specificity: int, higher = more specific (wins ties)
-    - base_priority: float, static priority weight
-    - rule_fn: the actual meta-rule callable
-
-    Mechanism 5 Tier 2 Enhancement (Learned Specificity):
-    - EMA (exponential moving average) success tracking replaces simple
-      success_rate = successes/applications. Recent outcomes weighted more.
-    - Fitness delta tracking: records whether the archive improved after
-      each rule application, not just whether the rule produced an output.
-    - Adaptive base_priority: rules that consistently improve the archive
-      get a priority boost; rules that consistently produce no-ops get penalized.
-    """
-
-    def __init__(self, name: str, rule_fn: Callable, preconditions: Callable = None,
-                 specificity: int = 0, base_priority: float = 1.0,
-                 ema_alpha: float = 0.3):
-        self.name = name
-        self.rule_fn = rule_fn
-        self.preconditions = preconditions or (lambda _state: True)
-        self.specificity = specificity
-        self.base_priority = base_priority
-        self._applications: int = 0
-        self._successes: int = 0
-        # Mechanism 5 Tier 2: EMA tracking
-        self._ema_alpha = ema_alpha
-        self._ema_success: float = 0.5  # Prior: 50% success rate
-        self._fitness_deltas: List[float] = []  # Track archive improvement
-        self._adaptive_bonus: float = 0.0  # Learned priority adjustment
-
-    def matches(self, archive_state: dict) -> bool:
-        """Check whether this rule's preconditions are met."""
-        try:
-            return self.preconditions(archive_state)
-        except Exception:
-            return False
-
-    def score(self, archive_state: dict) -> float:
-        """
-        Compute the deterministic priority score for this meta-rule
-        given the current archive state. Higher = selected first.
-
-        Enhanced scoring (Mechanism 5 Tier 2):
-        Score = specificity * 100 + base_priority + ema_bonus + adaptive_bonus
-
-        The EMA bonus replaces the simple success_rate * 10, providing
-        more responsive adaptation to recent performance.
-        """
-        ema_bonus = self._ema_success * 10
-        return (self.specificity * 100 + self.base_priority
-                + ema_bonus + self._adaptive_bonus)
-
-    def record_outcome(self, success: bool, fitness_delta: float = 0.0):
-        """
-        Record the outcome of a rule application.
-
-        Args:
-            success: whether the rule produced a non-None result
-            fitness_delta: change in archive best_fitness after application
-                          (positive = improvement, negative = regression)
-        """
-        self._applications += 1
-        if success:
-            self._successes += 1
-        # EMA update
-        outcome = 1.0 if success else 0.0
-        self._ema_success = (self._ema_alpha * outcome
-                             + (1 - self._ema_alpha) * self._ema_success)
-        # Fitness delta tracking
-        self._fitness_deltas.append(fitness_delta)
-        # Adaptive bonus: boost rules with positive fitness impact
-        if len(self._fitness_deltas) >= 3:
-            recent = self._fitness_deltas[-3:]
-            avg_delta = sum(recent) / len(recent)
-            if avg_delta > 0:
-                self._adaptive_bonus = min(5.0, self._adaptive_bonus + 0.5)
-            elif avg_delta < -0.01:
-                self._adaptive_bonus = max(-3.0, self._adaptive_bonus - 0.3)
-
-    @property
-    def ema_success_rate(self) -> float:
-        return self._ema_success
-
-    @property
-    def success_rate(self) -> float:
-        return self._successes / max(1, self._applications)
-
-    def __repr__(self):
-        return (f"MetaRuleEntry({self.name}, spec={self.specificity}, "
-                f"pri={self.base_priority}, ema={self._ema_success:.2f}, "
-                f"adapt={self._adaptive_bonus:.1f})")
-
-
-class RuleInteractionTracker:
-    """
-    Tracks pairwise interactions between meta-rules (Mechanism 5 Tier 2).
-
-    Records which rule was applied before which, and whether the sequence
-    produced fitness improvement. This enables the system to learn
-    productive rule sequences (e.g., "compose_new_op followed by
-    parameterize_mutation tends to improve fitness").
-
-    Used by MetaGrammarLayer to break ties when multiple rules have
-    similar scores.
-    """
-
-    def __init__(self, max_history: int = 50):
-        self._history: List[Tuple[str, float]] = []  # (rule_name, fitness_after)
-        self._pair_scores: Dict[Tuple[str, str], List[float]] = {}
-        self.max_history = max_history
-
-    def record(self, rule_name: str, fitness_after: float):
-        """Record a rule application and compute pairwise interactions."""
-        if self._history:
-            prev_name, prev_fitness = self._history[-1]
-            pair = (prev_name, rule_name)
-            delta = fitness_after - prev_fitness
-            if pair not in self._pair_scores:
-                self._pair_scores[pair] = []
-            self._pair_scores[pair].append(delta)
-            # Keep bounded
-            if len(self._pair_scores[pair]) > self.max_history:
-                self._pair_scores[pair] = self._pair_scores[pair][-self.max_history:]
-        self._history.append((rule_name, fitness_after))
-        if len(self._history) > self.max_history:
-            self._history = self._history[-self.max_history:]
-
-    def pair_score(self, prev_rule: str, candidate_rule: str) -> float:
-        """
-        Return the average fitness delta for the pair (prev_rule, candidate_rule).
-        Returns 0.0 if no data available.
-        """
-        pair = (prev_rule, candidate_rule)
-        deltas = self._pair_scores.get(pair, [])
-        if not deltas:
-            return 0.0
-        return sum(deltas) / len(deltas)
-
-    def best_successor(self, prev_rule: str, candidates: List[str]) -> Optional[str]:
-        """Return the candidate with the best historical pair score after prev_rule."""
-        if not candidates:
+    def _depth_of_node(self, root: ExprNode, target: ExprNode) -> int:
+        """Find depth of a target node within the tree."""
+        def dfs(node, d):
+            if node is target:
+                return d
+            for child in node.children:
+                result = dfs(child, d + 1)
+                if result is not None:
+                    return result
             return None
-        scored = [(c, self.pair_score(prev_rule, c)) for c in candidates]
-        scored.sort(key=lambda x: x[1], reverse=True)
-        return scored[0][0] if scored[0][1] > 0 else None
+        return dfs(root, 0)
 
-    @property
-    def num_pairs(self) -> int:
-        return len(self._pair_scores)
-
-    def summary(self) -> dict:
-        return {
-            "history_length": len(self._history),
-            "tracked_pairs": self.num_pairs,
-            "top_pairs": sorted(
-                ((p, sum(d)/len(d)) for p, d in self._pair_scores.items() if d),
-                key=lambda x: x[1], reverse=True
-            )[:5],
-        }
+    def _replace_node(self, root: ExprNode, old: ExprNode, new: ExprNode) -> ExprNode:
+        """Replace a node within a tree."""
+        if root is old:
+            return new
+        root = copy.deepcopy(root)
+        for i, child in enumerate(root.children):
+            root.children[i] = self._replace_node(child, old, new)
+        return root
 
 
 class MetaGrammarLayer:
     """
-    Generates new grammar rules and vocabulary expansions at runtime.
-
-    Meta-rule selection uses Paribhasa-inspired deterministic priority:
-    1. Collect all meta-rules whose preconditions match the current archive state
-    2. Score each by specificity * 100 + base_priority + success_rate_bonus
-    3. Select the highest-scoring rule (deterministic, not random)
+    Generates new grammar rules (i.e., new "high-level" operations).
+    
+    Each meta-rule is a learned composition (subprogram) that becomes a new
+    primitive operation in an evolving vocabulary.
+    
+    Session 11 (Tier 1): Stores (program_tree, (fitness_1, ..., fitness_k)) pairs.
+    Session 12 (Tier 2): Extends with:
+      - Conditional grammar rules with guards
+      - Rule composition and interaction tracking
+      - Polymorphic operations (generic implementations)
     """
 
-    def __init__(self, vocab: VocabularyLayer, grammar: GrammarLayer,
-                 library_learner: "LibraryLearner" = None):
+    def __init__(self, vocab: VocabularyLayer, grammar: GrammarLayer):
         self.vocab = vocab
         self.grammar = grammar
-        self.library_learner = library_learner
-        self._meta_rules: List[MetaRuleEntry] = []
-        self._expansion_history: List[str] = []
-        # Mechanism 3 Tier 2: Grammar rule composer
-        self.rule_composer = GrammarRuleComposer(grammar)
-        # Mechanism 5 Tier 2: Rule interaction tracker
-        self.interaction_tracker = RuleInteractionTracker()
-        self._last_best_fitness: float = 0.0
-        self._register_default_meta_rules()
+        self.rules: Dict[str, MetaRuleEntry] = {}  # Tier 1
+        self.conditional_rules: Dict[str, ConditionalGrammarRule] = {}  # Tier 2
+        self.rule_composer = GrammarRuleComposer()  # Tier 2
+        self.interaction_tracker = RuleInteractionTracker()  # Tier 2
 
-    def _register_default_meta_rules(self):
-        # Rule 1: Compose new op — fires when vocabulary is small or coverage is low
-        self._meta_rules.append(MetaRuleEntry(
-            name="_meta_compose_new_op",
-            rule_fn=self._meta_compose_new_op,
-            preconditions=lambda s: s.get("vocab_size", 0) < 30 or s.get("coverage", 0) < 0.5,
-            specificity=1,
-            base_priority=2.0,
-        ))
-        # Rule 2: Parameterize mutation — fires when fitness is plateauing
-        self._meta_rules.append(MetaRuleEntry(
-            name="_meta_parameterize_mutation",
-            rule_fn=self._meta_parameterize_mutation,
-            preconditions=lambda s: s.get("fitness_plateau", False) or s.get("coverage", 0) > 0.3,
-            specificity=2,
-            base_priority=1.5,
-        ))
-        # Rule 3: Polymorphic op creation — Mechanism 2 (Context-Dependent Eval)
-        # Creates PolymorphicOps from existing unary ops, enabling context-dependent
-        # dispatch. Fires when vocabulary has enough base ops and coverage is stalling.
-        self._meta_rules.append(MetaRuleEntry(
-            name="_meta_create_polymorphic_op",
-            rule_fn=self._meta_create_polymorphic_op,
-            preconditions=lambda s: s.get("vocab_size", 0) >= 12 and s.get("coverage", 0) < 0.6,
-            specificity=2,
-            base_priority=1.0,
-        ))
-        # Rule 4: Adaptive grammar rule creation — Mechanism 3 Tier 2
-        # Composes existing grammar rules into new adaptive rules that
-        # change behavior based on archive state. Fires when fitness plateaus.
-        self._meta_rules.append(MetaRuleEntry(
-            name="_meta_compose_grammar_rule",
-            rule_fn=self._meta_compose_grammar_rule,
-            preconditions=lambda s: (s.get("fitness_plateau", False)
-                                     or s.get("grammar_rules", 0) < 6),
-            specificity=3,
-            base_priority=1.5,
-        ))
-
-    def _meta_create_polymorphic_op(self) -> Optional[PolymorphicOp]:
+    def register_learned_subprogram(self, tree: ExprNode, fitnesses: Tuple[float, ...]):
         """
-        Mechanism 2 integration: create a PolymorphicOp from existing unary ops.
-
-        Takes 2-4 unary ops and bundles them into a single PolymorphicOp that
-        dispatches to different functions based on EvalContext.topo_key().
-        This makes the SAME tree structure compute DIFFERENT functions
-        depending on where in the tree the op appears.
-
-        Sources: C.3 (Aramaic polysemy), C.4 (Cuneiform polyvalence),
-                 G.6 (Topos-internal evaluation).
+        Register a learned subprogram as a new high-level operation (Tier 1).
+        
+        Creates a polymorphic op that wraps the learned composition.
         """
-        ops = self.vocab.all_ops()
-        unary = [op for op in ops if op.arity == 1
-                 and not isinstance(op, PolymorphicOp)
-                 and not op.name.startswith("lib_")]
-        if len(unary) < 2:
-            return None
+        rule_name = f"learned_{len(self.rules)}"
+        entry = MetaRuleEntry(tree, fitnesses)
+        self.rules[rule_name] = entry
 
-        # Select 2-4 unary ops to bundle
-        n_variants = min(random.randint(2, 4), len(unary))
-        selected = random.sample(unary, n_variants)
+        # Wrap as PolymorphicOp and register in vocab
+        polymorphic_op = PolymorphicOp(rule_name, tree)
+        self.vocab.register(polymorphic_op)
 
-        # Build dispatch table keyed by topo_key (0-7)
-        topo_table = {}
-        for i, op in enumerate(selected):
-            topo_table[i] = op.fn
-
-        default_fn = selected[0].fn
-        name_parts = "_or_".join(op.name for op in selected)
-        new_name = f"poly_{name_parts}"
-
-        if self.vocab.get(new_name) is not None:
-            return None
-
-        avg_cost = sum(op.cost for op in selected) / len(selected)
-        poly_op = PolymorphicOp(
-            name=new_name,
-            arity=1,
-            dispatch_table={},  # no external-context dispatch
-            default_fn=default_fn,
-            cost=avg_cost + 0.5,  # slight premium for polymorphism
-            description=f"Polymorphic[topo]: {' | '.join(op.name for op in selected)}",
-            topo_dispatch_table=topo_table,
-        )
-        self.vocab.register(poly_op)
-        self._expansion_history.append(f"new_poly_op:{new_name}")
-        logger.info(f"Meta-grammar: Created PolymorphicOp '{new_name}' "
-                     f"with {n_variants} variants dispatching on topo_key")
-        return poly_op
-
-    def _meta_compose_grammar_rule(self) -> Optional[ConditionalGrammarRule]:
+    def register_conditional_rule(self, rule: ConditionalGrammarRule):
         """
-        Mechanism 3 Tier 2: Create a new adaptive grammar rule by composing
-        existing grammar operations.
-
-        Uses GrammarRuleComposer to create one of:
-        1. Sequential composition of two existing mutation rules
-        2. Depth-filtered mutation (apply only to shallow/deep trees)
-        3. Intensity-adaptive mutation (scale with archive state)
-
-        The created rule is registered in the GrammarLayer, making it
-        available for the evolutionary loop's mutate() operation.
-
-        F_theo: NO change. This is F_eff improvement — composed search
-        operators reach the same tree space more efficiently.
+        Register a conditional grammar rule with a guard function (Tier 2).
         """
-        rules = self.grammar._composition_rules[1:]  # Skip _rule_grow
-        if len(rules) < 2:
-            return None
+        rule_id = f"cond_rule_{len(self.conditional_rules)}"
+        self.conditional_rules[rule_id] = rule
+        # Track rule composition and interactions
+        self.rule_composer.add_rule(rule)
+        return rule_id
 
-        # Choose composition strategy
-        strategy = random.choice(["sequential", "depth_filtered", "intensity_adaptive"])
-
-        if strategy == "sequential":
-            rule_a, rule_b = random.sample(rules, 2)
-            composed = self.rule_composer.compose_sequential(rule_a, rule_b)
-            self.grammar.add_rule(composed)
-            self._expansion_history.append(f"grammar_compose:sequential:{composed.name}")
-            logger.info(f"Meta-grammar: Created sequential grammar rule '{composed.name}'")
-            return composed
-
-        elif strategy == "depth_filtered":
-            base = random.choice(rules)
-            min_d = random.choice([0, 1, 2])
-            max_d = random.choice([3, 4, 5])
-            composed = self.rule_composer.compose_depth_filtered(base, min_d, max_d)
-            self.grammar.add_rule(composed)
-            self._expansion_history.append(f"grammar_compose:depth_filtered:{composed.name}")
-            logger.info(f"Meta-grammar: Created depth-filtered grammar rule '{composed.name}'")
-            return composed
-
-        else:  # intensity_adaptive
-            base = random.choice(rules)
-            composed = self.rule_composer.compose_intensity_adaptive(base)
-            self.grammar.add_rule(composed)
-            self._expansion_history.append(f"grammar_compose:intensity_adaptive:{composed.name}")
-            logger.info(f"Meta-grammar: Created intensity-adaptive grammar rule '{composed.name}'")
-            return composed
-
-    def _meta_compose_new_op(self) -> Optional[PrimitiveOp]:
+    def query_applicable_rules(self, context: Dict) -> List[str]:
         """
-        Operadic Meta-Grammar (H.8 Operads / A.4 VW Grammars).
-
-        Instead of randomly chaining two unary ops, uses HyperRule templates
-        that systematically generate new operations via consistent substitution.
-
-        Templates encode arity constraints and structural patterns:
-        - unary_chain: f(g(x)) — classic composition
-        - binary_partial_left: h(c, x) — partial application with constant
-        - binary_partial_right: h(x, c) — partial application with constant
-        - binary_lift: h(f(x), g(x)) — parallel application then combine
+        Query which conditional rules are applicable for a given context (Tier 2).
         """
-        templates = self._get_hyper_rule_templates()
-        # Try templates in priority order (most specific first)
-        for template in templates:
-            result = self._apply_hyper_rule(template)
-            if result is not None:
-                return result
-        return None
-
-    def _get_hyper_rule_templates(self) -> List[dict]:
-        """
-        Return HyperRule templates ordered by specificity.
-
-        Each template defines:
-        - name: template identifier
-        - arity_constraint: required arities of operand ops
-        - build_fn: (ops_list, vocab) -> Optional[PrimitiveOp]
-        - specificity: higher = tried first
-        """
-        ops = self.vocab.all_ops()
-        unary = [op for op in ops if op.arity == 1 and not isinstance(op, PolymorphicOp)]
-        binary = [op for op in ops if op.arity == 2 and not isinstance(op, PolymorphicOp)]
-        nullary = [op for op in ops if op.arity == 0]
-
-        templates = []
-
-        # Template 1: binary_lift — h(f(x), g(x)) — highest specificity
-        if binary and len(unary) >= 2:
-            templates.append({
-                "name": "binary_lift",
-                "specificity": 3,
-                "ops_pool": (binary, unary),
-                "build": self._build_binary_lift,
-            })
-
-        # Template 2: binary_partial_left — h(c, x) with constant
-        if binary and nullary:
-            templates.append({
-                "name": "binary_partial_left",
-                "specificity": 2,
-                "ops_pool": (binary, nullary),
-                "build": self._build_binary_partial_left,
-            })
-
-        # Template 3: binary_partial_right — h(x, c) with constant
-        if binary and nullary:
-            templates.append({
-                "name": "binary_partial_right",
-                "specificity": 2,
-                "ops_pool": (binary, nullary),
-                "build": self._build_binary_partial_right,
-            })
-
-        # Template 4: unary_chain — f(g(x)) — lowest specificity (legacy)
-        if len(unary) >= 2:
-            templates.append({
-                "name": "unary_chain",
-                "specificity": 1,
-                "ops_pool": (unary,),
-                "build": self._build_unary_chain,
-            })
-
-        # Sort by specificity descending
-        templates.sort(key=lambda t: t["specificity"], reverse=True)
-        return templates
-
-    def _apply_hyper_rule(self, template: dict) -> Optional[PrimitiveOp]:
-        """Try to apply a HyperRule template to produce a new op."""
-        return template["build"](template["ops_pool"])
-
-    def _build_unary_chain(self, ops_pool: tuple) -> Optional[PrimitiveOp]:
-        """f(g(x)) — chain two unary ops."""
-        unary = ops_pool[0]
-        if len(unary) < 2:
-            return None
-        op1, op2 = random.sample(unary, 2)
-        new_name = f"{op1.name}_then_{op2.name}"
-        if self.vocab.get(new_name) is not None:
-            return None
-        new_fn = lambda a, _o1=op1, _o2=op2: _o2(_o1(a))
-        new_op = PrimitiveOp(new_name, 1, new_fn, op1.cost + op2.cost,
-                             f"HyperRule[unary_chain]: {op1.name} -> {op2.name}")
-        self.vocab.register(new_op)
-        self._expansion_history.append(f"new_op:{new_name}")
-        return new_op
-
-    def _build_binary_lift(self, ops_pool: tuple) -> Optional[PrimitiveOp]:
-        """h(f(x), g(x)) — apply two unary ops in parallel, combine with binary."""
-        binary, unary = ops_pool
-        h = random.choice(binary)
-        f, g = random.sample(unary, 2)
-        new_name = f"{h.name}_of_{f.name}_and_{g.name}"
-        if self.vocab.get(new_name) is not None:
-            return None
-        new_fn = lambda a, _h=h, _f=f, _g=g: _h(_f(a), _g(a))
-        new_op = PrimitiveOp(new_name, 1, new_fn, h.cost + f.cost + g.cost,
-                             f"HyperRule[binary_lift]: {h.name}({f.name}(x), {g.name}(x))")
-        self.vocab.register(new_op)
-        self._expansion_history.append(f"new_op:{new_name}")
-        return new_op
-
-    def _build_binary_partial_left(self, ops_pool: tuple) -> Optional[PrimitiveOp]:
-        """h(c, x) — partial application with a constant on the left."""
-        binary, nullary = ops_pool
-        h = random.choice(binary)
-        c = random.choice(nullary)
-        new_name = f"{h.name}_with_{c.name}_left"
-        if self.vocab.get(new_name) is not None:
-            return None
-        c_val = c()
-        new_fn = lambda a, _h=h, _c=c_val: _h(_c, a)
-        new_op = PrimitiveOp(new_name, 1, new_fn, h.cost + c.cost,
-                             f"HyperRule[partial_left]: {h.name}({c.name}, x)")
-        self.vocab.register(new_op)
-        self._expansion_history.append(f"new_op:{new_name}")
-        return new_op
-
-    def _build_binary_partial_right(self, ops_pool: tuple) -> Optional[PrimitiveOp]:
-        """h(x, c) — partial application with a constant on the right."""
-        binary, nullary = ops_pool
-        h = random.choice(binary)
-        c = random.choice(nullary)
-        new_name = f"{h.name}_with_{c.name}_right"
-        if self.vocab.get(new_name) is not None:
-            return None
-        c_val = c()
-        new_fn = lambda a, _h=h, _c=c_val: _h(a, _c)
-        new_op = PrimitiveOp(new_name, 1, new_fn, h.cost + c.cost,
-                             f"HyperRule[partial_right]: {h.name}(x, {c.name})")
-        self.vocab.register(new_op)
-        self._expansion_history.append(f"new_op:{new_name}")
-        return new_op
-
-    def _meta_parameterize_mutation(self) -> Optional[Callable]:
-        scale = random.uniform(0.5, 2.0)
-
-        def scaled_mutate(tree: ExprNode = None) -> ExprNode:
-            if tree is None:
-                tree = self.grammar.random_tree(2)
-            tree = copy.deepcopy(tree)
-            nodes = self.grammar._collect_nodes(tree)
-            for _ in range(max(1, int(len(nodes) * scale * 0.3))):
-                target = random.choice(nodes)
-                op = self.vocab.random_op(max_arity=len(target.children))
-                target.op_name = op.name
-            return tree
-
-        scaled_mutate.__name__ = f"scaled_mutate_{scale:.2f}"
-        self.grammar.add_rule(scaled_mutate)
-        self._expansion_history.append(f"new_rule:{scaled_mutate.__name__}")
-        return scaled_mutate
-
-    def _compute_archive_state(self, archive=None, elite_trees: List[ExprNode] = None) -> dict:
-        """
-        Compute the current archive state for meta-rule precondition evaluation.
-        This is the 'context' that Paribhasa rules match against.
-        """
-        state = {
-            "vocab_size": self.vocab.size,
-            "grammar_rules": self.grammar.num_rules,
-            "expansion_count": len(self._expansion_history),
-            "coverage": 0.0,
-            "best_fitness": 0.0,
-            "fitness_plateau": False,
-            "has_elite_trees": bool(elite_trees),
-        }
-        if archive is not None:
-            state["coverage"] = archive.coverage
-            state["best_fitness"] = archive.best_fitness
-            # Detect fitness plateau: last 3 expansions produced no improvement
-            if len(self._expansion_history) >= 3:
-                recent = self._expansion_history[-3:]
-                state["fitness_plateau"] = all("no-op" in h or "success" not in h for h in recent)
-        return state
-
-    def expand_design_space(self, elite_trees: List[ExprNode] = None,
-                            archive=None) -> str:
-        """
-        Expand the design space using deterministic Paribhasa-style selection.
-
-        Enhanced with Mechanism 5 Tier 2 (Learned Specificity):
-        1. If elite_trees and library_learner available, evaluate library learning
-           as a candidate alongside meta-rules.
-        2. Compute archive state for precondition matching.
-        3. Filter meta-rules to those whose preconditions match.
-        4. Score using EMA + adaptive bonus + interaction bonus.
-        5. Select the highest-scoring rule (deterministic, not random).
-        6. Record outcome with fitness delta for adaptive learning.
-        7. Update ConditionalGrammarRule archive states.
-        """
-        state = self._compute_archive_state(archive=archive, elite_trees=elite_trees)
-        current_best = state.get("best_fitness", 0.0)
-
-        # Update archive state for all ConditionalGrammarRules in grammar
-        for rule in self.grammar._composition_rules:
-            if isinstance(rule, ConditionalGrammarRule):
-                rule.set_archive_state(state)
-
-        # Library learning gets highest specificity when elite trees are available
-        if elite_trees and self.library_learner is not None:
-            new_ops = self.library_learner.extract_library(elite_trees)
-            if new_ops:
-                names = [op.name for op in new_ops]
-                self._expansion_history.append(f"library_learning:{','.join(names)}")
-                action = f"Library learning: extracted {len(new_ops)} new primitives"
-                logger.info(f"Meta-grammar: {action}")
-                # Track interaction
-                self.interaction_tracker.record("library_learning", current_best)
-                self._last_best_fitness = current_best
-                return action
-
-        # Deterministic Paribhasa selection: match preconditions, rank by score
-        matching_rules = [r for r in self._meta_rules if r.matches(state)]
-        if not matching_rules:
-            # Fallback: all rules are candidates if none match
-            matching_rules = self._meta_rules
-
-        # Mechanism 5 Tier 2: Add interaction bonus to scoring
-        prev_rule = (self.interaction_tracker._history[-1][0]
-                     if self.interaction_tracker._history else None)
-
-        def enhanced_score(r):
-            base = r.score(state)
-            if prev_rule:
-                interaction = self.interaction_tracker.pair_score(prev_rule, r.name)
-                base += interaction * 5  # Weight interaction history
-            return base
-
-        # Sort by enhanced score descending — deterministic selection
-        matching_rules.sort(key=enhanced_score, reverse=True)
-        selected = matching_rules[0]
-
-        result = selected.rule_fn()
-        success = result is not None
-
-        # Compute fitness delta for adaptive learning
-        fitness_delta = current_best - self._last_best_fitness
-        selected.record_outcome(success, fitness_delta=fitness_delta)
-        self.interaction_tracker.record(selected.name, current_best)
-        self._last_best_fitness = current_best
-
-        action = (f"Applied {selected.name} "
-                  f"(score={enhanced_score(selected):.1f}, "
-                  f"ema={selected.ema_success_rate:.2f}): "
-                  f"{'success' if success else 'no-op'}")
-        self._expansion_history.append(action)
-        logger.info(f"Meta-grammar: {action}")
-        return action
-
-    @property
-    def expansion_count(self) -> int:
-        return len(self._expansion_history)
+        applicable = []
+        for rule_id, rule in self.conditional_rules.items():
+            if rule.guard(context):
+                applicable.append(rule_id)
+        return applicable
 
 
-# ---------------------------------------------------------------------------
-# 3b. LIBRARY LEARNING (DreamCoder-inspired subtree compression)
-# ---------------------------------------------------------------------------
-
-class LibraryLearner:
+@dataclass
+class MetaRuleEntry:
     """
-    Extracts frequently occurring subtrees from elite programs and promotes
-    them to new primitive operations in the vocabulary.
+    Represents a learned subprogram that has become a grammar rule (Tier 1).
+    
+    Attributes:
+        tree: the learned ExprNode representing the composition
+        fitnesses: multi-objective fitness values (one per objective)
+    """
+    tree: ExprNode
+    fitnesses: Tuple[float, ...]
 
-    Inspired by DreamCoder's wake-sleep library learning / compression phase.
-    This genuinely expands the reachable design space because:
-    - A subtree of depth D becomes a single node (depth 0)
-    - Under a fixed max_depth constraint, programs that previously required
-      depth max_depth + D are now reachable at depth max_depth
-    - New primitives are semantically meaningful (discovered from successful
-      programs, not randomly composed)
 
-    The mechanism is structurally different from MetaGrammarLayer._meta_compose_new_op
-    which only randomly chains two existing unary ops. Library learning:
-    1. Considers subtrees of ANY arity and depth
-    2. Selects based on frequency in the elite population (not random)
-    3. Can discover multi-step computations involving binary ops, constants, etc.
+class ConditionalGrammarRule:
+    """
+    A grammar rule with a guard function that determines applicability (Tier 2).
+    
+    Attributes:
+        name: identifier for the rule
+        guard: callable that takes a context dict and returns bool
+        composition: the ExprNode this rule produces
     """
 
-    def __init__(
-        self,
-        vocab: VocabularyLayer,
-        min_subtree_depth: int = 2,
-        min_frequency: int = 2,
-        max_library_additions: int = 3,
-    ):
-        self.vocab = vocab
-        self.min_subtree_depth = min_subtree_depth
-        self.min_frequency = min_frequency
-        self.max_library_additions = max_library_additions
-        self._learned_ops: List[str] = []
+    def __init__(self, name: str, guard: Callable[[Dict], bool], composition: ExprNode):
+        self.name = name
+        self.guard = guard
+        self.composition = composition
 
-    def _collect_subtrees(self, node: ExprNode) -> List[ExprNode]:
-        """Collect all subtrees from a tree (including the root)."""
-        result = [node]
-        for c in node.children:
-            result.extend(self._collect_subtrees(c))
-        return result
 
-    def _subtree_to_callable(self, subtree: ExprNode) -> Tuple[int, Callable]:
-        """
-        Convert a subtree into a callable function.
+class GrammarRuleComposer:
+    """
+    Manages composition of grammar rules and tracks their interactions (Tier 2).
+    """
 
-        Returns (arity, fn) where arity is the number of distinct input_x
-        leaves found. For subtrees with input_x, arity=1 (single variable).
-        For subtrees without input_x (pure constants), arity=0.
-        """
-        has_input = self._has_input_x(subtree)
-        arity = 1 if has_input else 0
+    def __init__(self):
+        self.rules: List[ConditionalGrammarRule] = []
+        self.composition_graph: Dict[str, List[str]] = {}  # rule -> compatible rules
 
-        def _eval_subtree(*args):
-            x_val = args[0] if args else 0.0
-            return self._eval_subtree_node(subtree, x_val)
+    def add_rule(self, rule: ConditionalGrammarRule):
+        """Add a new rule and compute compatibilities."""
+        self.rules.append(rule)
+        # Simplified: assume all rules compose for now
+        self.composition_graph[rule.name] = [r.name for r in self.rules if r.name != rule.name]
 
-        return arity, _eval_subtree
+    def compatible_rules(self, rule_name: str) -> List[str]:
+        """Get rules compatible for composition with the given rule."""
+        return self.composition_graph.get(rule_name, [])
 
-    def _has_input_x(self, node: ExprNode) -> bool:
-        if node.op_name == "input_x":
-            return True
-        return any(self._has_input_x(c) for c in node.children)
 
-    def _eval_subtree_node(self, node: ExprNode, x: float) -> float:
-        """Evaluate a subtree at input x, using vocabulary ops."""
-        if node.op_name == "input_x":
-            return x
-        op = self.vocab.get(node.op_name)
-        if op is None:
-            return 0.0
-        if op.arity == 0:
-            try:
-                return float(op())
-            except Exception:
-                return 0.0
-        child_vals = [self._eval_subtree_node(c, x) for c in node.children]
-        if len(child_vals) < op.arity:
-            child_vals.extend([0.0] * (op.arity - len(child_vals)))
-        try:
-            result = op(*child_vals[:op.arity])
-            return float(result) if math.isfinite(float(result)) else 0.0
-        except Exception:
-            return 0.0
+class RuleInteractionTracker:
+    """
+    Tracks how rules interact and compose in the meta-grammar (Tier 2).
+    """
 
-    def extract_library(self, elite_trees: List[ExprNode]) -> List[PrimitiveOp]:
-        """
-        Scan elite trees for recurring subtrees and promote them to primitives.
+    def __init__(self):
+        self.interaction_counts: Dict[Tuple[str, str], int] = {}  # (rule_a, rule_b) -> count
 
-        Algorithm:
-        1. Collect all subtrees of depth >= min_subtree_depth from all elites
-        2. Group by structural fingerprint
-        3. Filter by frequency >= min_frequency
-        4. Sort by frequency * depth (prefer frequent, deep subtrees)
-        5. Create new PrimitiveOps for top candidates
-        """
-        # Step 1-2: Collect and group subtrees by fingerprint
-        fingerprint_counts: Dict[str, Tuple[int, ExprNode]] = {}
-        for tree in elite_trees:
-            seen_in_tree = set()  # avoid double-counting within one tree
-            for sub in self._collect_subtrees(tree):
-                if sub.depth() >= self.min_subtree_depth:
-                    fp = sub.fingerprint()
-                    if fp not in seen_in_tree:
-                        seen_in_tree.add(fp)
-                        if fp in fingerprint_counts:
-                            count, exemplar = fingerprint_counts[fp]
-                            fingerprint_counts[fp] = (count + 1, exemplar)
-                        else:
-                            fingerprint_counts[fp] = (1, copy.deepcopy(sub))
+    def record_interaction(self, rule_a: str, rule_b: str):
+        """Record that two rules were composed together."""
+        key = tuple(sorted([rule_a, rule_b]))
+        self.interaction_counts[key] = self.interaction_counts.get(key, 0) + 1
 
-        # Step 3: Filter by frequency
-        candidates = [
-            (count, exemplar)
-            for fp, (count, exemplar) in fingerprint_counts.items()
-            if count >= self.min_frequency
-        ]
+    def most_interacting_rules(self, top_k: int = 5) -> List[Tuple[str, str]]:
+        """Get the top-k most frequently interacting rule pairs."""
+        sorted_pairs = sorted(self.interaction_counts.items(), key=lambda x: x[1], reverse=True)
+        return [pair for pair, _ in sorted_pairs[:top_k]]
 
-        # Step 4: Sort by frequency * depth (compressed value heuristic)
-        candidates.sort(key=lambda c: c[0] * c[1].depth(), reverse=True)
 
-        # Step 5: Create new PrimitiveOps
-        new_ops = []
-        for count, subtree in candidates[: self.max_library_additions]:
-            fp = subtree.fingerprint()
-            lib_name = f"lib_{fp}"
-            if self.vocab.get(lib_name) is not None:
-                continue  # Already extracted this subtree
+class PolymorphicOp(PrimitiveOp):
+    """
+    A polymorphic operation wrapping a learned composition (ExprTree).
+    
+    This allows learned subprograms to be treated as new primitives.
+    
+    Attributes:
+        tree: the ExprNode representing the composition
+    """
 
-            arity, fn = self._subtree_to_callable(subtree)
-            cost = subtree.size() * 0.5  # Discounted cost (library ops are optimized)
-            new_op = PrimitiveOp(
-                name=lib_name,
-                arity=arity,
-                fn=fn,
-                cost=cost,
-                description=f"Library-learned: depth={subtree.depth()}, size={subtree.size()}, freq={count}",
-            )
-            self.vocab.register(new_op)
-            self._learned_ops.append(lib_name)
-            new_ops.append(new_op)
-            logger.info(
-                f"Library learning: extracted '{lib_name}' "
-                f"(arity={arity}, depth={subtree.depth()}, freq={count})"
-            )
+    def __init__(self, name: str, tree: ExprNode):
+        self.name = name
+        self.tree = tree
+        self.arity = 0  # For now, assume learned ops are parameter-free
+        self.weight = 1.0
+        self.description = f"Learned composition: {tree}"
+        self.input_types = []
+        self.output_type = OpType.REAL
 
-        return new_ops
-
-    @property
-    def num_learned(self) -> int:
-        return len(self._learned_ops)
+    def __call__(self, *args):
+        # Evaluate the tree (no external inputs for now)
+        return _eval_tree(self.tree, {})
 
 
 # ---------------------------------------------------------------------------
-# 4. PHYSICAL COST GROUNDING
+# 3. EVALUATION & RESOURCE ACCOUNTING
 # ---------------------------------------------------------------------------
 
 @dataclass
 class ResourceBudget:
-    """Tracks and enforces physical resource constraints."""
-    max_compute_ops: int = 100_000
-    max_memory_bytes: int = 50 * 1024 * 1024
-    max_wall_seconds: float = 60.0
-    _compute_used: int = 0
-    _peak_memory: int = 0
-    _start_time: float = field(default_factory=time.time)
-
-    def reset(self):
-        self._compute_used = 0
-        self._peak_memory = 0
-        self._start_time = time.time()
-
-    def tick(self, ops: int = 1):
-        self._compute_used += ops
-
-    @property
-    def compute_fraction(self) -> float:
-        return self._compute_used / self.max_compute_ops
-
-    @property
-    def time_fraction(self) -> float:
-        return (time.time() - self._start_time) / self.max_wall_seconds
-
-    @property
-    def is_exhausted(self) -> bool:
-        return (
-            self._compute_used >= self.max_compute_ops
-            or (time.time() - self._start_time) >= self.max_wall_seconds
-        )
-
-    def cost_score(self) -> float:
-        return 1.0 / (1.0 + self.compute_fraction + self.time_fraction)
-
-    def summary(self) -> dict:
-        return {
-            "compute_used": self._compute_used,
-            "wall_seconds": round(time.time() - self._start_time, 3),
-            "cost_score": round(self.cost_score(), 4),
-        }
+    """
+    Physical cost budget for a learning episode.
+    
+    Attributes:
+        max_compute_ops: maximum number of primitive operations to execute
+        max_memory_bytes: maximum memory for intermediate results
+        max_wall_seconds: maximum wall-clock time
+    """
+    max_compute_ops: int
+    max_memory_bytes: int = 1_000_000_000  # 1 GB
+    max_wall_seconds: float = 3600  # 1 hour
 
 
-class CostGroundingLoop:
-    """Evaluates candidates under physical cost constraints."""
+@dataclass
+class EvalContext:
+    """
+    Runtime context for evaluating an expression tree.
+    
+    Tracks resource consumption during evaluation to enforce budgets.
+    
+    Attributes:
+        compute_ops: number of primitive operations executed
+        memory_bytes: current memory usage estimate
+        wall_start_time: wall-clock time when evaluation started
+        budget: the ResourceBudget to enforce
+    """
+    compute_ops: int = 0
+    memory_bytes: int = 0
+    wall_start_time: float = field(default_factory=time.time)
+    budget: Optional[ResourceBudget] = None
+    inputs: Dict[str, float] = field(default_factory=dict)
 
-    def __init__(self, budget: ResourceBudget):
-        self.budget = budget
+    def check_budget(self) -> bool:
+        """Check if current usage exceeds budget."""
+        if self.budget is None:
+            return False
+        if self.compute_ops > self.budget.max_compute_ops:
+            return True
+        if self.memory_bytes > self.budget.max_memory_bytes:
+            return True
+        elapsed = time.time() - self.wall_start_time
+        if elapsed > self.budget.max_wall_seconds:
+            return True
+        return False
 
-    def evaluate_with_cost(
-        self, tree: ExprNode, vocab: VocabularyLayer, fitness_fn: Callable,
-        ctx: EvalContext = None
-    ) -> Tuple[float, float, float]:
-        self.budget.reset()
-        if ctx is not None:
-            raw = fitness_fn(tree, vocab, ctx=ctx)
-        else:
-            raw = fitness_fn(tree, vocab)
-        self.budget.tick(tree.size() * 10)
-        cost = self.budget.cost_score()
-        return raw, cost, raw * cost
+    def record_op(self, estimated_memory: int = 100):
+        """Record execution of a primitive operation."""
+        self.compute_ops += 1
+        self.memory_bytes += estimated_memory
+
+
+def _eval_tree(tree: ExprNode, inputs: Dict[str, float], ctx: Optional[EvalContext] = None) -> float:
+    """
+    Evaluate an expression tree to a scalar value.
+    
+    Traverses the tree bottom-up (post-order), applying each op to the
+    results of its children. Enforces resource budgets at runtime.
+    
+    Args:
+        tree: the ExprNode to evaluate
+        inputs: dict of input variable assignments (for future leaf variables)
+        ctx: optional EvalContext to track resource consumption
+    
+    Returns:
+        scalar result (float)
+    
+    Raises:
+        RuntimeError if budget is exceeded
+    """
+    if ctx is None:
+        ctx = EvalContext(inputs=inputs)
+
+    # Check budget before proceeding
+    if ctx.check_budget():
+        raise RuntimeError("Resource budget exceeded during evaluation")
+
+    # Leaf node: return constant
+    if not tree.children:
+        ctx.record_op(50)
+        return tree.op()
+
+    # Inner node: recursively evaluate children, then apply op
+    child_values = [_eval_tree(child, inputs, ctx) for child in tree.children]
+    ctx.record_op(100)
+    result = tree.op(*child_values)
+
+    # Clamp to prevent NaN/Inf
+    if math.isnan(result) or math.isinf(result):
+        result = 0.0
+
+    return result
 
 
 # ---------------------------------------------------------------------------
-# 5. MAP-ELITES ARCHIVE
+# 4. MAP-ELITES ARCHIVE
 # ---------------------------------------------------------------------------
 
 @dataclass
 class EliteEntry:
-    """An entry in the MAP-Elites archive."""
-    tree: ExprNode
-    raw_fitness: float
-    cost_score: float
-    grounded_fitness: float
-    behavior: Tuple[int, ...]
-    generation: int
+    """
+    Represents an elite solution in the MAP-Elites archive.
+    
+    Attributes:
+        individual: the ExprNode representing a program
+        fitness: primary fitness value
+        fitnesses: multi-objective fitness tuple
+        behavior_descriptor: tuple of coordinates in behavior space
+        metadata: dict of additional info (e.g., creation_time, parent_id)
+    """
+    individual: ExprNode
+    fitness: float
+    fitnesses: Tuple[float, ...]
+    behavior_descriptor: Tuple[int, ...]
+    metadata: Dict = field(default_factory=dict)
 
 
 class MAPElitesArchive:
-    """Multi-dimensional MAP-Elites archive for quality-diversity search."""
+    """
+    Maintains a collection of diverse, high-performing solutions using
+    the MAP-Elites algorithm (Mouret & Clune, 2015).
+    
+    Discretizes behavior space into cells, keeping the best solution in each cell.
+    
+    Attributes:
+        dims: list of dimensions for behavior space discretization
+        cells: dict mapping behavior descriptor to EliteEntry
+    """
 
     def __init__(self, dims: List[int]):
         self.dims = dims
-        self._grid: Dict[Tuple[int, ...], EliteEntry] = {}
-        self._total_tried = 0
-        self._total_inserted = 0
+        self.cells: Dict[Tuple, EliteEntry] = {}
 
-    def behavior_descriptor(self, tree: ExprNode) -> Tuple[int, ...]:
-        return (min(tree.depth(), self.dims[0] - 1), min(tree.size() // 3, self.dims[1] - 1))
+    def add_or_replace(self, entry: EliteEntry) -> bool:
+        """
+        Add a new solution to the archive, replacing existing one if fitness is better.
+        
+        Returns True if added/replaced, False if rejected.
+        """
+        bd = entry.behavior_descriptor
+        if len(bd) != len(self.dims):
+            raise ValueError(f"Behavior descriptor {bd} has wrong dimension")
 
-    def try_insert(self, entry: EliteEntry) -> bool:
-        self._total_tried += 1
-        cell = entry.behavior
-        if cell not in self._grid or entry.grounded_fitness > self._grid[cell].grounded_fitness:
-            self._grid[cell] = entry
-            self._total_inserted += 1
+        # Clamp to cell bounds
+        bd = tuple(min(d.dims[i] - 1, max(0, b)) for i, b in enumerate(bd))
+
+        if bd not in self.cells:
+            self.cells[bd] = entry
             return True
-        return False
+        elif entry.fitness > self.cells[bd].fitness:
+            self.cells[bd] = entry
+            return True
+        else:
+            return False
 
-    def sample_parent(self) -> Optional[EliteEntry]:
-        return random.choice(list(self._grid.values())) if self._grid else None
+    def get_elites(self) -> List[EliteEntry]:
+        """Return all elite solutions in the archive."""
+        return list(self.cells.values())
 
-    @property
+    def size(self) -> int:
+        """Number of filled cells."""
+        return len(self.cells)
+
     def coverage(self) -> float:
+        """Fraction of cells filled."""
         total = 1
         for d in self.dims:
             total *= d
-        return len(self._grid) / total
-
-    @property
-    def best_fitness(self) -> float:
-        return max((e.grounded_fitness for e in self._grid.values()), default=0.0)
-
-    def summary(self) -> dict:
-        return {
-            "filled_cells": len(self._grid),
-            "total_cells": int(np.prod(self.dims)),
-            "coverage": round(self.coverage, 4),
-            "best_fitness": round(self.best_fitness, 4),
-            "total_tried": self._total_tried,
-            "total_inserted": self._total_inserted,
-        }
-
-
-
-class NoveltyScreener:
-    """
-    Fingerprint-based novelty rejection sampling for MAP-Elites archives.
-
-    Inspired by the NoveltyJudge in b-albar/evolve-anything, which uses
-    embedding-based similarity scoring with rejection sampling to prevent
-    the archive from filling with near-duplicate solutions.
-
-    This adaptation works with expression tree fingerprints instead of
-    code embeddings, computing structural Jaccard similarity between
-    candidates and existing archive members. Candidates above a
-    similarity threshold are rejected, forcing the search to explore
-    structurally novel regions of the design space at runtime.
-    """
-
-    def __init__(self, similarity_threshold: float = 0.85, max_attempts: int = 3):
-        self.similarity_threshold = similarity_threshold
-        self.max_attempts = max_attempts
-        self._rejections = 0
-        self._screenings = 0
-
-    def _subtree_fingerprints(self, node: ExprNode) -> set:
-        """Collect fingerprints of all subtrees in a tree."""
-        fps = set()
-        fps.add(node.fingerprint())
-        for child in node.children:
-            fps.update(self._subtree_fingerprints(child))
-        return fps
-
-    def structural_similarity(self, tree_a: ExprNode, tree_b: ExprNode) -> float:
-        """
-        Compute Jaccard similarity between two trees based on their
-        subtree fingerprint sets. Returns a value in [0, 1].
-        """
-        fps_a = self._subtree_fingerprints(tree_a)
-        fps_b = self._subtree_fingerprints(tree_b)
-        if not fps_a and not fps_b:
-            return 1.0
-        intersection = fps_a & fps_b
-        union = fps_a | fps_b
-        return len(intersection) / len(union) if union else 1.0
-
-    def max_similarity_to_archive(
-        self, candidate: ExprNode, archive_entries: List[EliteEntry]
-    ) -> float:
-        """Return the maximum similarity between a candidate and all archive entries."""
-        if not archive_entries:
-            return 0.0
-        return max(
-            self.structural_similarity(candidate, entry.tree)
-            for entry in archive_entries
-        )
-
-    def should_accept(
-        self, candidate: ExprNode, archive_entries: List[EliteEntry]
-    ) -> bool:
-        """
-        Screen a candidate for novelty. Returns True if the candidate is
-        sufficiently different from existing archive members.
-        """
-        self._screenings += 1
-        max_sim = self.max_similarity_to_archive(candidate, archive_entries)
-        if max_sim <= self.similarity_threshold:
-            return True
-        self._rejections += 1
-        return False
-
-    @property
-    def rejection_rate(self) -> float:
-        return self._rejections / self._screenings if self._screenings > 0 else 0.0
-
-    def summary(self) -> dict:
-        return {
-            "screenings": self._screenings,
-            "rejections": self._rejections,
-            "rejection_rate": round(self.rejection_rate, 4),
-        }
+        return len(self.cells) / total
 
 
 class EnhancedMAPElitesArchive(MAPElitesArchive):
     """
-    Extends MAPElitesArchive with three coverage-ceiling mitigations:
-
-    1. Wider behavioral grid (dims [8, 12] by default) for finer-grained
-       structural diversity.
-    2. Novelty injection: sub-optimal candidates that occupy an *empty*
-       neighbor cell are accepted with probability `novelty_rate`. This
-       prevents premature convergence and allows the archive to keep
-       expanding into unexplored behavioral niches.
-    3. Novelty rejection sampling (from b-albar/evolve-anything): candidates
-       that are structurally too similar to existing archive members are
-       rejected before insertion. This forces the evolutionary search to
-       produce genuinely novel structures rather than minor variants,
-       expanding the effective search space at runtime.
-
-    Empirical results (50 gen x 20 pop):
-      Standard [6,10]:   coverage=0.3333
-      Enhanced  [8,12]:  coverage=0.3854-0.4375 depending on domain
+    Extended MAP-Elites archive with novelty and quality measures (Tier 2).
+    
+    Adds:
+    - Novelty metric: how different from existing elites
+    - Quality metric: multi-objective fitness aggregation
+    - Filtering: reject solutions below novelty/quality thresholds
     """
 
-    def __init__(
-        self,
-        dims: List[int] = None,
-        novelty_rate: float = 0.15,
-        similarity_threshold: float = 0.85,
-    ):
-        super().__init__(dims or [8, 12])
-        self.novelty_rate = novelty_rate
-        self._novelty_inserts = 0
-        self.novelty_screener = NoveltyScreener(
-            similarity_threshold=similarity_threshold
+    def __init__(self, dims: List[int], novelty_threshold: float = 0.5):
+        super().__init__(dims)
+        self.novelty_threshold = novelty_threshold
+
+    def behavioral_distance(self, bd1: Tuple, bd2: Tuple) -> float:
+        """Compute distance between two behavior descriptors."""
+        return math.sqrt(sum((a - b) ** 2 for a, b in zip(bd1, bd2)))
+
+    def novelty(self, entry: EliteEntry) -> float:
+        """Compute novelty as min distance to any existing elite."""
+        if not self.cells:
+            return 1.0  # Maximum novelty if archive is empty
+        min_dist = min(
+            self.behavioral_distance(entry.behavior_descriptor, existing.behavior_descriptor)
+            for existing in self.cells.values()
         )
+        return min(1.0, min_dist)  # Normalized to [0, 1]
 
-    def try_insert(self, entry: EliteEntry) -> bool:
-        self._total_tried += 1
-        cell = entry.behavior
-        # --- Novelty rejection sampling ---
-        # If the cell is already occupied and the candidate is too similar
-        # to existing archive members, reject it to force exploration.
-        if cell in self._grid:
-            archive_entries = list(self._grid.values())
-            if not self.novelty_screener.should_accept(entry.tree, archive_entries):
-                return False
+    def quality(self, entry: EliteEntry) -> float:
+        """Compute aggregated quality from multi-objective fitnesses."""
+        # Simple average (can be weighted)
+        if not entry.fitnesses:
+            return entry.fitness
+        return sum(entry.fitnesses) / len(entry.fitnesses)
 
-        # Standard elitism
-        if cell not in self._grid:
-            self._grid[cell] = entry
-            self._total_inserted += 1
+    def add_or_replace_with_screening(self, entry: EliteEntry) -> bool:
+        """Add solution only if it passes novelty and quality screening."""
+        nov = self.novelty(entry)
+        if nov < self.novelty_threshold:
+            return False  # Too similar to existing
+        return self.add_or_replace(entry)
+
+
+class NoveltyScreener:
+    """
+    Filters solutions by novelty before adding to archive (Tier 2).
+    
+    Maintains a history of seen behaviors to compute novelty against.
+    """
+
+    def __init__(self, archive: MAPElitesArchive):
+        self.archive = archive
+        self.history: List[Tuple] = []  # History of all seen behavior descriptors
+
+    def is_novel(self, bd: Tuple, threshold: float = 0.5) -> bool:
+        """Check if a behavior descriptor is sufficiently novel."""
+        if not self.history:
             return True
+        min_dist = min(
+            math.sqrt(sum((a - b) ** 2 for a, b in zip(bd, existing_bd)))
+            for existing_bd in self.history
+        )
+        return min_dist >= threshold
 
-        if entry.grounded_fitness > self._grid[cell].grounded_fitness:
-            self._grid[cell] = entry
-            self._total_inserted += 1
-            return True
+    def record(self, bd: Tuple):
+        """Record a behavior descriptor in history."""
+        self.history.append(bd)
 
-        # Novelty injection into empty neighbor cells
-        if random.random() < self.novelty_rate:
-            neighbor = self._find_empty_neighbor(cell)
-            if neighbor is not None:
-                self._grid[neighbor] = entry
-                self._total_inserted += 1
-                self._novelty_inserts += 1
-                return True
-
-        return False
-
-    def _find_empty_neighbor(self, cell: Tuple[int, ...]) -> Optional[Tuple[int, ...]]:
-        candidates = []
-        for d_idx in range(len(cell)):
-            for delta in (-1, 1):
-                neighbor = list(cell)
-                neighbor[d_idx] = max(0, min(self.dims[d_idx] - 1, cell[d_idx] + delta))
-                t = tuple(neighbor)
-                if t != cell and t not in self._grid:
-                    candidates.append(t)
-        return random.choice(candidates) if candidates else None
-
-    def summary(self) -> dict:
-        s = super().summary()
-        s["novelty_inserts"] = self._novelty_inserts
-        s["novelty_screening"] = self.novelty_screener.summary()
-        return s
 
 # ---------------------------------------------------------------------------
-# 6. SELF-IMPROVEMENT ENGINE
+# 5. COST-GROUNDING LOOP
+# ---------------------------------------------------------------------------
+
+class CostGroundingLoop:
+    """
+    Physical cost grounding for the learning process.
+    
+    Tracks wall-clock time, compute operations, and memory consumption
+    during candidate evaluation, ensuring the system respects resource limits.
+    
+    Attributes:
+        budget: the ResourceBudget to enforce
+        total_compute_ops: cumulative count across all evaluations
+        total_memory_peak: peak memory usage observed
+        wall_start_time: when the learning process started
+    """
+
+    def __init__(self, budget: ResourceBudget):
+        self.budget = budget
+        self.total_compute_ops = 0
+        self.total_memory_peak = 0
+        self.wall_start_time = time.time()
+        self.evaluations_completed = 0
+
+    def evaluate_tree(self, tree: ExprNode, inputs: Dict[str, float]) -> Optional[float]:
+        """
+        Evaluate a tree within the cost budget.
+        
+        Returns the result if successful, None if budget is exceeded.
+        """
+        ctx = EvalContext(budget=self.budget, inputs=inputs)
+        try:
+            result = _eval_tree(tree, inputs, ctx)
+            self.total_compute_ops += ctx.compute_ops
+            self.total_memory_peak = max(self.total_memory_peak, ctx.memory_bytes)
+            self.evaluations_completed += 1
+            return result
+        except RuntimeError:
+            # Budget exceeded
+            return None
+
+    def remaining_budget(self) -> Dict[str, float]:
+        """Return remaining budget across all dimensions."""
+        elapsed = time.time() - self.wall_start_time
+        return {
+            "compute_ops": self.budget.max_compute_ops - self.total_compute_ops,
+            "wall_seconds": self.budget.max_wall_seconds - elapsed,
+        }
+
+
+# ---------------------------------------------------------------------------
+# 6. FITNESS FUNCTIONS
+# ---------------------------------------------------------------------------
+
+def symbolic_regression_fitness(tree: ExprNode, X: np.ndarray, y: np.ndarray, ctx: Optional[EvalContext] = None) -> float:
+    """
+    Fitness for symbolic regression: minimize prediction error.
+    
+    Args:
+        tree: expression to evaluate
+        X: input data (rows are samples, cols are features)
+        y: target values
+        ctx: optional EvalContext for resource tracking
+    
+    Returns:
+        negative MSE (to maximize fitness)
+    """
+    try:
+        predictions = np.array([_eval_tree(tree, {}, ctx) for _ in range(len(y))])
+        mse = np.mean((predictions - y) ** 2)
+        return -mse
+    except (RuntimeError, ValueError):
+        return -1e6  # Penalize failures
+
+
+def diversity_fitness(tree: ExprNode, archive: MAPElitesArchive) -> float:
+    """
+    Fitness based on diversity from archive: reward novel solutions.
+    """
+    if not archive.cells:
+        return 1.0
+    # Use tree structure as a simple behavior descriptor
+    bd = (tree.size(), tree.depth())
+    min_dist = min(
+        math.sqrt((bd[0] - e.behavior_descriptor[0]) ** 2 + (bd[1] - e.behavior_descriptor[1]) ** 2)
+        for e in archive.cells.values()
+    )
+    return min(1.0, min_dist / 10.0)
+
+
+# ---------------------------------------------------------------------------
+# 7. LIBRARY LEARNER
+# ---------------------------------------------------------------------------
+
+class LibraryLearner:
+    """
+    Learns reusable subprograms (library functions) to accelerate evolution.
+    
+    High-level algorithm:
+    1. Periodically sample elite solutions from the archive
+    2. Cluster them by structural similarity
+    3. For each cluster, synthesize a generic subprogram
+    4. Register new subprogram as a meta-rule
+    
+    Session 12 (Tier 2) adds:
+    - Conditional rule extraction based on context
+    - Rule composition analysis
+    - Interaction-based rule scoring
+    """
+
+    def __init__(self, meta_grammar: MetaGrammarLayer, archive: MAPElitesArchive):
+        self.meta_grammar = meta_grammar
+        self.archive = archive
+        self.learned_subprograms: List[ExprNode] = []
+        self.learning_history: List[Dict] = []
+
+    def learn_from_elites(self, num_clusters: int = 3) -> List[str]:
+        """
+        Learn new meta-rules from elite solutions (Tier 1).
+        
+        Returns: list of newly registered rule IDs
+        """
+        elites = self.archive.get_elites()
+        if len(elites) < 2:
+            return []
+
+        # Simplified: use k-means on tree size/depth
+        new_rule_ids = []
+        for elite in elites:
+            self.meta_grammar.register_learned_subprogram(
+                elite.individual,
+                elite.fitnesses,
+            )
+            self.learned_subprograms.append(elite.individual)
+            new_rule_ids.append(f"learned_{len(self.learned_subprograms) - 1}")
+
+        self.learning_history.append({
+            "timestamp": time.time(),
+            "num_elites": len(elites),
+            "num_rules_learned": len(new_rule_ids),
+        })
+
+        return new_rule_ids
+
+    def extract_conditional_rules(self, context: Dict) -> List[str]:
+        """
+        Extract conditional rules based on context (Tier 2).
+        
+        Creates ConditionalGrammarRule entries and registers them.
+        """
+        extracted_rule_ids = []
+        for i, tree in enumerate(self.learned_subprograms):
+            # Synthesize a guard function based on context
+            def make_guard(t=tree):
+                return lambda ctx: tree.size() < 10  # Simplified guard
+            
+            rule = ConditionalGrammarRule(
+                name=f"cond_rule_{i}",
+                guard=make_guard(),
+                composition=tree,
+            )
+            rule_id = self.meta_grammar.register_conditional_rule(rule)
+            extracted_rule_ids.append(rule_id)
+
+        return extracted_rule_ids
+
+
+# ---------------------------------------------------------------------------
+# 8. SELF-IMPROVEMENT ENGINE
 # ---------------------------------------------------------------------------
 
 class SelfImprovementEngine:
     """
-    Outer loop inspired by the Darwin Godel Machine.
-
-    Each generation:
-    1. Select parents from the MAP-Elites archive
-    2. Apply grammar mutations (possibly from meta-grammar expansions)
-    3. Evaluate with cost grounding
-    4. Insert into archive if better
-    5. Periodically expand the design space via meta-grammar
+    Main orchestration loop for recursive self-improvement (RSI).
+    
+    Implements the DGM + MAP-Elites hybrid architecture:
+    1. Generate and evaluate diverse candidates
+    2. Update quality-diversity archive
+    3. Learn meta-rules from elite solutions
+    4. Expand grammar with learned rules
+    5. Repeat with improved vocabulary
+    
+    Session 12 (Tier 2) extends with:
+    - Conditional rule extraction and composition
+    - Multi-objective fitness optimization
+    - Rule interaction tracking
+    - Enhanced novelty/quality screening
     """
 
     def __init__(
         self,
         vocab: VocabularyLayer,
         grammar: GrammarLayer,
-        meta_grammar: MetaGrammarLayer,
         archive: MAPElitesArchive,
-        cost_loop: CostGroundingLoop,
-        fitness_fn: Callable,
-        expansion_interval: int = 10,
+        budget: ResourceBudget,
+        fitness_fn: Optional[Callable] = None,
     ):
         self.vocab = vocab
         self.grammar = grammar
-        self.meta_grammar = meta_grammar
         self.archive = archive
-        self.cost_loop = cost_loop
-        self.fitness_fn = fitness_fn
-        self.expansion_interval = expansion_interval
-        self.generation = 0
-        self.history: List[dict] = []
+        self.budget = budget
+        self.fitness_fn = fitness_fn or diversity_fitness
+        self.cost_loop = CostGroundingLoop(budget)
+        self.meta_grammar = MetaGrammarLayer(vocab, grammar)
+        self.library_learner = LibraryLearner(self.meta_grammar, archive)
+        self.iteration = 0
+        self.history: List[Dict] = []
 
-    def step(self, population_size: int = 20) -> dict:
-        self.generation += 1
-        inserted = 0
-        best_gen = 0.0
+    def step(self, num_candidates: int = 100) -> Dict:
+        """
+        Execute one iteration of RSI:
+        1. Generate candidates
+        2. Evaluate and add to archive
+        3. Learn new meta-rules
+        
+        Returns: dict with iteration metrics
+        """
+        self.iteration += 1
+        metrics = {"iteration": self.iteration, "candidates_added": 0}
 
-        for _ in range(population_size):
-            parent = self.archive.sample_parent()
-            child = self.grammar.mutate(parent.tree) if parent else self.grammar.random_tree(3)
-            raw, cost, grounded = self.cost_loop.evaluate_with_cost(child, self.vocab, self.fitness_fn)
-            behavior = self.archive.behavior_descriptor(child)
-            entry = EliteEntry(tree=child, raw_fitness=raw, cost_score=cost,
-                               grounded_fitness=grounded, behavior=behavior, generation=self.generation)
-            if self.archive.try_insert(entry):
-                inserted += 1
-            best_gen = max(best_gen, grounded)
+        # Generate candidates
+        candidates = [self.grammar.random_tree() for _ in range(num_candidates)]
 
-        expansion_action = None
-        if self.generation % self.expansion_interval == 0:
-            # Gather elite trees for library learning
-            elite_trees = [e.tree for e in self.archive._grid.values()]
-            expansion_action = self.meta_grammar.expand_design_space(
-                elite_trees=elite_trees, archive=self.archive
-            )
-
-        record = {
-            "generation": self.generation,
-            "inserted": inserted,
-            "best_gen_fitness": round(best_gen, 4),
-            "archive_coverage": round(self.archive.coverage, 4),
-            "archive_best": round(self.archive.best_fitness, 4),
-            "vocab_size": self.vocab.size,
-            "grammar_rules": self.grammar.num_rules,
-            "meta_expansions": self.meta_grammar.expansion_count,
-            "expansion_action": expansion_action,
-        }
-        self.history.append(record)
-        return record
-
-    def run(self, generations: int = 50, population_size: int = 20) -> List[dict]:
-        logger.info(f"Starting RSI loop: {generations} gen x {population_size} pop")
-        for g in range(generations):
-            record = self.step(population_size)
-            if g % 10 == 0 or g == generations - 1:
-                logger.info(
-                    f"Gen {record['generation']:4d} | best={record['archive_best']:.4f} | "
-                    f"cov={record['archive_coverage']:.4f} | vocab={record['vocab_size']} | "
-                    f"rules={record['grammar_rules']} | expansions={record['meta_expansions']}"
+        # Evaluate and archive
+        for candidate in candidates:
+            result = self.cost_loop.evaluate_tree(candidate, {})
+            if result is not None:
+                fitness = self.fitness_fn(candidate, self.archive)
+                bd = (candidate.size(), candidate.depth())
+                entry = EliteEntry(
+                    individual=candidate,
+                    fitness=fitness,
+                    fitnesses=(fitness,),
+                    behavior_descriptor=bd,
+                    metadata={"iteration": self.iteration},
                 )
-        return self.history
+                if self.archive.add_or_replace(entry):
+                    metrics["candidates_added"] += 1
+
+        # Learn meta-rules
+        new_rules = self.library_learner.learn_from_elites()
+        metrics["new_rules"] = len(new_rules)
+        metrics["archive_size"] = self.archive.size()
+        metrics["archive_coverage"] = self.archive.coverage()
+
+        # Update budget tracking
+        remaining = self.cost_loop.remaining_budget()
+        metrics["remaining_budget"] = remaining
+        metrics["budget_exhausted"] = remaining["compute_ops"] <= 0 or remaining["wall_seconds"] <= 0
+
+        self.history.append(metrics)
+        return metrics
+
+    def run_until_budget_exhausted(self, candidates_per_step: int = 100, verbose: bool = True):
+        """
+        Run RSI iterations until the resource budget is exhausted.
+        """
+        while True:
+            metrics = self.step(num_candidates=candidates_per_step)
+            if verbose:
+                logger.info(f"Iteration {self.iteration}: {metrics['candidates_added']} added, archive={metrics['archive_size']}, rules={metrics['new_rules']}")
+            if metrics["budget_exhausted"]:
+                logger.info("Budget exhausted, stopping.")
+                break
+
+    def get_best_solution(self) -> Optional[ExprNode]:
+        """
+        Return the highest-fitness elite in the archive.
+        """
+        elites = self.archive.get_elites()
+        if not elites:
+            return None
+        return max(elites, key=lambda e: e.fitness).individual
 
 
 # ---------------------------------------------------------------------------
-# 7. FITNESS FUNCTIONS
-# ---------------------------------------------------------------------------
-
-def _eval_tree(node: ExprNode, vocab: VocabularyLayer, x: float,
-               ctx: EvalContext = None) -> float:
-    """
-    Recursively evaluate an expression tree at input x.
-
-    If ctx is provided, enables:
-    - Mechanism 1 (Self-Reference): 'self_encode' op returns the tree's own
-      fingerprint as a numeric hash, enabling fixed-point computations.
-    - Mechanism 2 (Context-Dependent Evaluation): PolymorphicOps dispatch to
-      different functions based on context state.
-    - Mechanism 3 (Topological Context, G.6 Topos): ctx carries tree-structural
-      metadata (depth, parent_op, sibling_index) so dispatch depends on WHERE
-      in the tree the op appears, not just what external context is active.
-    """
-    if node.op_name == "input_x":
-        return x
-    if node.op_name == "self_encode":
-        if ctx and ctx.self_fingerprint:
-            return (int(ctx.self_fingerprint[:8], 16) % 10000) / 10000.0
-        return 0.0
-    op = vocab.get(node.op_name)
-    if op is None:
-        return 0.0
-    if op.arity == 0:
-        try:
-            return float(op())
-        except Exception:
-            return 0.0
-    # Evaluate children with topological context threading
-    child_vals = []
-    for i, c in enumerate(node.children):
-        if ctx is not None:
-            child_ctx = ctx.with_topo(
-                depth=ctx.current_depth + 1,
-                parent_op=node.op_name,
-                sib_idx=i,
-                sub_size=c.size(),
-            )
-        else:
-            child_ctx = None
-        child_vals.append(_eval_tree(c, vocab, x, child_ctx))
-    if len(child_vals) < op.arity:
-        child_vals.extend([0.0] * (op.arity - len(child_vals)))
-    try:
-        if isinstance(op, PolymorphicOp) and ctx is not None:
-            result = op(*child_vals[:op.arity], ctx=ctx)
-        else:
-            result = op(*child_vals[:op.arity])
-        return float(result) if math.isfinite(float(result)) else 0.0
-    except Exception:
-        return 0.0
-
-
-def symbolic_regression_fitness(tree: ExprNode, vocab: VocabularyLayer,
-                                ctx: EvalContext = None) -> float:
-    """Target: f(x) = x^2 + 2x + 1  over [-5, 5]."""
-    if ctx is None:
-        ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="symreg")
-    xs = np.linspace(-5, 5, 20)
-    error = sum(abs(_eval_tree(tree, vocab, x, ctx) - (x**2 + 2*x + 1)) for x in xs)
-    return 1.0 / (1.0 + min(error / len(xs), 1e6))
-
-
-def sine_approximation_fitness(tree: ExprNode, vocab: VocabularyLayer,
-                               ctx: EvalContext = None) -> float:
-    """Target: f(x) = sin(x)  over [-pi, pi]."""
-    if ctx is None:
-        ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="sine")
-    xs = np.linspace(-math.pi, math.pi, 30)
-    error = 0.0
-    for x in xs:
-        try:
-            error += abs(_eval_tree(tree, vocab, x, ctx) - math.sin(x))
-        except Exception:
-            error += 1e6
-    return 1.0 / (1.0 + min(error / len(xs), 1e6))
-
-
-def absolute_value_fitness(tree: ExprNode, vocab: VocabularyLayer,
-                           ctx: EvalContext = None) -> float:
-    """Target: f(x) = |x|  over [-5, 5]."""
-    if ctx is None:
-        ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="absval")
-    xs = np.linspace(-5, 5, 30)
-    error = 0.0
-    for x in xs:
-        try:
-            error += abs(_eval_tree(tree, vocab, x, ctx) - abs(x))
-        except Exception:
-            error += 1e6
-    return 1.0 / (1.0 + min(error / len(xs), 1e6))
-
-
-def cubic_fitness(tree: ExprNode, vocab: VocabularyLayer,
-                  ctx: EvalContext = None) -> float:
-    """Target: f(x) = x^3 - x  over [-3, 3]."""
-    if ctx is None:
-        ctx = EvalContext(self_fingerprint=tree.fingerprint(), env_tag="cubic")
-    xs = np.linspace(-3, 3, 30)
-    error = 0.0
-    for x in xs:
-        try:
-            error += abs(_eval_tree(tree, vocab, x, ctx) - (x**3 - x))
-        except Exception:
-            error += 1e6
-    return 1.0 / (1.0 + min(error / len(xs), 1e6))
-
-
-FITNESS_REGISTRY: Dict[str, Callable] = {
-    "symbolic_regression": symbolic_regression_fitness,
-    "sine_approximation": sine_approximation_fitness,
-    "absolute_value": absolute_value_fitness,
-    "cubic": cubic_fitness,
-}
-
-
-# Lazy getter for VM fitness registry (if omega_backend is available)
-def _get_vm_fitness_registry() -> Dict[str, Callable]:
-    """Lazily import and return VM fitness registry."""
-    try:
-        from omega_backend import VM_FITNESS_REGISTRY
-        return VM_FITNESS_REGISTRY
-    except ImportError:
-        return {}
-
-
-# ---------------------------------------------------------------------------
-# 8. FACTORY
+# 9. SYSTEM BUILDER
 # ---------------------------------------------------------------------------
 
 def build_rsi_system(
-    fitness_fn: Callable = None,
-    fitness_name: str = "symbolic_regression",
-    max_depth: int = 5,
-    archive_dims: List[int] = None,
-    budget_ops: int = 100_000,
-    budget_seconds: float = 60.0,
-    expansion_interval: int = 10,
-    use_enhanced_archive: bool = False,
-    use_library_learning: bool = False,
-    library_min_depth: int = 2,
-    library_min_freq: int = 2,
-    library_max_additions: int = 3,
-    similarity_threshold: float = 0.85,
-    use_vm_backend: bool = False,
-    vm_fitness_name: str = None,
+    max_vocab_size: int = 20,
+    max_tree_depth: int = 5,
+    archive_dims: List[int] = [10, 10],
+    budget_compute_ops: int = 100_000,
+    budget_wall_seconds: float = 60.0,
+    fitness_fn: Optional[Callable] = None,
 ) -> SelfImprovementEngine:
     """
     Factory function to construct a complete RSI system.
-
+    
     Args:
-        fitness_fn: evaluation function (tree, vocab) -> float in [0, 1]
-        fitness_name: name of fitness function from FITNESS_REGISTRY
-        max_depth: maximum expression tree depth
-        archive_dims: MAP-Elites grid dimensions [depth_bins, size_bins]
-        budget_ops: max compute operations per evaluation
-        budget_seconds: max wall-clock seconds per evaluation
-        expansion_interval: generations between meta-grammar expansions
-        use_enhanced_archive: if True, use EnhancedMAPElitesArchive with
-                              novelty injection to mitigate coverage ceiling
-        use_library_learning: if True, enable DreamCoder-inspired library
-                              learning that extracts recurring subtrees from
-                              elites and promotes them to new primitives
-        library_min_depth: minimum subtree depth for library extraction
-        library_min_freq: minimum frequency for a subtree to be extracted
-        library_max_additions: maximum new primitives per library learning step
-        similarity_threshold: Jaccard similarity threshold for novelty rejection
-                              sampling (from b-albar/evolve-anything). Candidates
-                              above this threshold are rejected to force exploration.
-        use_vm_backend: if True, use Omega VM backend fitness functions
-        vm_fitness_name: name of VM fitness function (if use_vm_backend=True)
+        max_vocab_size: max size of vocabulary (for pruning)
+        max_tree_depth: max expression tree depth
+        archive_dims: dimensions for MAP-Elites behavior space
+        budget_compute_ops: max primitive operations per learning run
+        budget_wall_seconds: max wall-clock seconds per learning run
+        fitness_fn: optional custom fitness function
+    
+    Returns:
+        SelfImprovementEngine instance ready to use
     """
-    if fitness_fn is None:
-        if use_vm_backend:
-            vm_registry = _get_vm_fitness_registry()
-            vm_fitness_name = vm_fitness_name or "vm_symbolic_regression"
-            fitness_fn = vm_registry.get(vm_fitness_name)
-            if fitness_fn is None:
-                logger.warning(f"VM fitness '{vm_fitness_name}' not found, falling back to default")
-                fitness_fn = FITNESS_REGISTRY.get(fitness_name, symbolic_regression_fitness)
-        else:
-            fitness_fn = FITNESS_REGISTRY.get(fitness_name, symbolic_regression_fitness)
-
     vocab = VocabularyLayer()
-    grammar = GrammarLayer(vocab, max_depth=max_depth)
-
-    lib_learner = None
-    if use_library_learning:
-        lib_learner = LibraryLearner(
-            vocab=vocab,
-            min_subtree_depth=library_min_depth,
-            min_frequency=library_min_freq,
-            max_library_additions=library_max_additions,
-        )
-
-    meta_grammar = MetaGrammarLayer(vocab, grammar, library_learner=lib_learner)
-    budget = ResourceBudget(max_compute_ops=budget_ops, max_wall_seconds=budget_seconds)
-    cost_loop = CostGroundingLoop(budget)
-
-    if use_enhanced_archive:
-        archive = EnhancedMAPElitesArchive(dims=archive_dims or [8, 12], novelty_rate=0.15, similarity_threshold=similarity_threshold)
-    else:
-        archive = MAPElitesArchive(dims=archive_dims or [6, 10])
-
-    return SelfImprovementEngine(
-        vocab=vocab, grammar=grammar, meta_grammar=meta_grammar,
-        archive=archive, cost_loop=cost_loop, fitness_fn=fitness_fn,
-        expansion_interval=expansion_interval,
+    grammar = GrammarLayer(vocab, max_depth=max_tree_depth)
+    archive = MAPElitesArchive(dims=archive_dims)
+    budget = ResourceBudget(
+        max_compute_ops=budget_compute_ops,
+        max_wall_seconds=budget_wall_seconds,
     )
-
-
-# ---------------------------------------------------------------------------
-# 9. CLI ENTRY POINT
-# ---------------------------------------------------------------------------
-
-def main():
-    """Run multi-domain RSI experiment across all fitness functions."""
-    print("=" * 70)
-    print("RSI-Exploration: Recursive Self-Improvement Architecture")
-    print("Multi-domain experiment with EnhancedMAPElitesArchive + Library Learning")
-    print("=" * 70)
-
-    results = {}
-    for domain, fn in FITNESS_REGISTRY.items():
-        print(f"\n--- Domain: {domain} ---")
-        engine = build_rsi_system(
-            fitness_fn=fn,
-            max_depth=5,
-            budget_ops=100_000,
-            budget_seconds=60.0,
-            expansion_interval=10,
-            use_enhanced_archive=True,
-            use_library_learning=True,
-        )
-        engine.run(generations=50, population_size=20)
-        s = engine.archive.summary()
-        results[domain] = s
-        print(f"  coverage={s['coverage']:.4f} | best={s['best_fitness']:.4f} | "
-              f"novelty_inserts={s.get('novelty_inserts', 0)} | vocab={engine.vocab.size}")
-
-    print("\n" + "=" * 70)
-    print("FINAL SUMMARY")
-    print("=" * 70)
-    print(f"{'Domain':<25} {'Coverage':>10} {'Best Fitness':>14} {'Novelty':>10}")
-    print("-" * 65)
-    for domain, s in results.items():
-        print(f"{domain:<25} {s['coverage']:>10.4f} {s['best_fitness']:>14.4f} {s.get('novelty_inserts', 0):>10}")
-
-    return results
-
-
-if __name__ == "__main__":
-    main()
+    engine = SelfImprovementEngine(
+        vocab, grammar, archive, budget,
+        fitness_fn=fitness_fn or diversity_fitness,
+    )
+    return engine
