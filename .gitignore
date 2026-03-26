@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Ad-hoc experiment runner scripts
+run_rsi_experiment.py
+run_rsi_final.py
+run_rsi_hard.py
+run_rsi_quintic.py
+run_rsi_quintic2.py
+run_rsi_true_frozen.py
