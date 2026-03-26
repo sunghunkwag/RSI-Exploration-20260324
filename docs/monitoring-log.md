@@ -125,7 +125,7 @@ CAGE DIAGNOSIS:
   Within-format:   NO — genuinely new: monomorphization provably fails for recursive level variation
 BLACKLIST CHECK:  CLEAR — not a variant of B01-B14
 TRANSPLANT SKETCH: Making grammar rule "levels" (meta-rule nesting depth, recursion depth) into first-class computable values in the RSI system. Currently max_depth is a fixed parameter. If depth became a first-class computable expression dependent on tree structure, trees could express depth-varying recursion. Requires: (1) depth type in ExprNode, (2) bounded depth quantification in grammar rules, (3) subject reduction proof for typing.
-VERDICT: STRUCTURAL_EXPANSION — genuine FORMAT_CHANGE. The mechanism of internalizing meta-level parameters as first-class terms is a well-understood type-theoretic technique with clear formal foundations.
+VERDICT: STRUCTURAL_EXPANSION — genuine FORMAT_CHANGE. The mechanism of internalizing meta-level parameters as first-class computable values is a well-understood type-theoretic technique with clear formal foundations.
 
 #### Deep Read 2: arxiv:2212.09060 — Parsing as a Lifting Problem (Melliès & Zeilberger)
 FORMAL STRUCTURE EXTRACTION:
@@ -175,3 +175,66 @@ Day 2 deep reads confirm a pattern: the mathematical foundations for understandi
 Hypernetworks That Evolve Themselves (2512.16406) is confirmed CAGE: CLOSED — fixed architecture, content-only self-modification.
 
 No new STRUCTURAL_EXPANSION candidates surviving all filters.
+
+## 2026-03-26 (DAILY_PATROL Day 3)
+- arxiv scanned: ~40, new: 5, relevant: 0, deeper_read: 4, not_relevant: 1, skipped(already read): ~15
+- GitHub scanned: ~10, new: 0, relevant: 0, skipped: ~6
+- Staleness: ~38% (~15/~40 results already in read logs)
+- Query evolution: Evolved queries to follow citation chains (Kovács → TTBFL → BCDE → Dybjer/Setzer IR). Author-name searches productive.
+- Blacklist variants found: 0
+- Cumulative: papers 62 logged, repos 19 logged
+
+### New papers found (citation chain following)
+- **arxiv:2103.00223** "Generalized Universe Hierarchies and First-Class Universe Levels" (Kovács 2021) — DEEPER_READ: The PRIMARY SOURCE for first-class universe levels. IR used for transfinite hierarchies. Levels as first-class types subject to internal reasoning. Generalizes both Coq bounded polymorphism and Agda internal level computations.
+- **arxiv:2212.03284** "Type Theory with Explicit Universe Polymorphism" (BCDE, revised) — DEEPER_READ: Precursor to 2603.04010. Higher-rank level polymorphism with level constraints. Subject reduction failure identified (fixed in TTBFL by bounded types).
+- **arxiv:2402.15074** "Interpretation of Inaccessible Sets in MLTT with Mahlo Universe" — DEEPER_READ: Demonstrates Setzer's Mahlo universe suffices (without extra universe above) for interpreting CZF + inaccessible sets. Agda formalization. Accessibility predicate as substitute.
+- **Dybjer-Setzer 1999** "A Finite Axiomatization of Inductive-Recursive Definitions" (TLCA) — DEEPER_READ (PRIMARY SOURCE): IR definitions modeled as initial algebras in slice categories. Generic formation, introduction, elimination, equality rules. The finite axiomatization demonstrates IR can be captured by finitely many schematic rules. Key for understanding whether IR provides a computable grammar extension procedure.
+- **arxiv:2506.10943** "Self-Adapting Language Models" — NOT: Weight updates from agent interactions, content modification within fixed LM format.
+
+### Deep reads completed (Day 3 main work)
+
+#### Deep Read 1: arxiv:2603.04014 — Non-Derivability in Polymorphic Dependent Type Theory (Geuvers)
+FORMAL STRUCTURE EXTRACTION:
+  Old format:      λP2 (polymorphic second-order dependent type theory) with impredicative encodings
+  New format:      λP2 + Sigma-types + identity types + function extensionality
+  Transition op:   Adding structural axioms (Sigma, Id, funext) to enable induction
+  Became express.: Natural number induction, stream coinduction, parametric quotient types with induction
+  Computable:      YES (standard extensions, implemented in proof assistants)
+CAGE DIAGNOSIS:
+  Layer affected:  FORMAT_CHANGE — each extension adds genuinely new derivation power
+  Within-format:   NO — proven non-derivable in base system. No encoding trick can substitute.
+BLACKLIST CHECK:  CLEAR
+KEY INSIGHT FOR RSI: Geuvers proves that ENCODING cannot substitute for STRUCTURAL EXTENSION. Induction is not derivable from impredicativity alone. This directly parallels the RSI problem: you cannot encode design space expansion within a fixed grammar — you need structural grammar extensions. This confirms the theoretical foundation of the Protocol: content modification within fixed format cannot achieve what format extension achieves.
+TRANSPLANT SKETCH: Not directly transplantable as a mechanism. Instead, it validates the theoretical framework: the RSI system's grammar IS the "type system," and adding new grammar rules (meta-rules) IS the analogue of adding Sigma/Id/funext to λP2. The question is whether the meta-grammar layer can generate the RIGHT extensions — not whether extensions help (they provably do).
+VERDICT: NO_STRUCTURE_FOUND for a new mechanism, but CONFIRMS the theoretical framework. Non-derivability results provide formal backing for why content modification within fixed format is insufficient.
+
+#### Deep Read 2: Kovács 2021 — Generalized Universe Hierarchies (arxiv:2103.00223)
+Key contribution: IR is the semantic machinery for transfinite universe hierarchies. First-class levels enable arbitrary internal reasoning about universe membership. The relationship: IR provides the MODEL THEORY, first-class levels provide the SYNTAX.
+For RSI: Kovács shows that IR-based models can support arbitrarily large hierarchies without ad-hoc extensions. The model grows by IR construction, not by external fiat. However, the GROWTH PROCEDURE is fixed at the meta-level (the IR schema is chosen once). The system does not modify its own IR schema.
+VERDICT: FORMALIZATION — deep mathematical foundations, no self-extension mechanism.
+
+#### Deep Read 3: Dybjer-Setzer 1999 — Finite Axiomatization of IR
+Key contribution: IR definitions can be captured by finitely many schematic rules. The axiomatization has:
+  - Formation rule: how to form a new IR type from codes
+  - Introduction rule: how to construct elements
+  - Elimination rule: how to pattern-match
+  - Equality rule: computation behavior
+These are GENERIC — they work for any IR definition, not just specific ones.
+For RSI: The finite axiomatization means that if the RSI system could internalize the IR schema, it would have a GENERIC mechanism for creating new types (new grammar rules with mutual dependencies). However:
+  (a) The IR schema itself is fixed — you choose it once
+  (b) The system would need a meta-meta-level to modify the IR schema
+  (c) This is exactly the infinite regress problem: who modifies the modifier?
+VERDICT: NO_STRUCTURE_FOUND for self-extension. The finite axiomatization is powerful but static. It does not provide a procedure for a system to extend its own axiomatization.
+
+### Isomorphism analysis: Candidate 8 (First-Class Depth)
+RESULT: **ISOMORPHIC** at unlimited resources.
+Reasoning: ExprNode trees are FINITE expression trees, not recursive programs. First-class depth in a non-recursive language just selects which fixed depth to use — every such tree is equivalent to some fixed-depth tree. The FORMAT_CHANGE from TTBFL is only genuine when the language supports recursive definitions with level-varying calls. ExprNode trees lack recursion.
+COROLLARY: First-class depth becomes genuinely new ONLY when combined with recursive evaluation (self_encode + depth-varying recursion). This combination is noted as potential Candidate 8b.
+Candidate 8 reclassified: F_EFF_GAIN_UNDER_CONSTRAINT → ISOMORPHIC.
+
+### CAGE diagnostic summary (Day 3)
+Day 3 establishes a critical theoretical result via Geuvers' non-derivability theorem: encoding within a fixed format PROVABLY cannot substitute for structural extension. This validates the Protocol's core premise. The IR literature (Kovács, Dybjer-Setzer) provides the mathematical tools for understanding grammar extension as type formation, but none of these tools provide a SELF-EXTENSION mechanism — they all require external choice of the IR schema.
+
+The infinite regress problem remains: any meta-level that can modify the grammar is itself a fixed level. Modifying the meta-level requires a meta-meta-level, ad infinitum. This is consistent with the theoretical prediction that genuine F_theo expansion from within a closed system may be impossible.
+
+Candidate 8 is reclassified as ISOMORPHIC. No new candidates added. The field of type theory provides formal confirmation of WHY the problem is hard, but not a solution.

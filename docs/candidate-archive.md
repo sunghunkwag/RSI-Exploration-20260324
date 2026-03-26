@@ -66,8 +66,13 @@ Each entry: mechanism name, source, formal extraction, V1 status, date added.
 - **Became expressible:** Recursive definitions with depth-varying recursive calls; trees that compute their own depth bounds contextually
 - **Transition op:** Internalize max_depth from external parameter to first-class bounded type (Depth < k) within tree expressions
 - **Computable:** YES in principle (TTBFL has explicit syntax, Agda mechanization exists via IR)
-- **V1 potential:** MEDIUM — genuine FORMAT_CHANGE (levels become terms), but may be isomorphic to simply using larger fixed depth at unlimited resources
-- **Status:** NOT_IMPLEMENTED — requires formal analysis of whether depth-as-first-class-value expands F_theo or is isomorphic to unbounded fixed depth
+- **V1 potential:** ~~MEDIUM~~ → **LOW (F_EFF only in current format)**
 - **Blacklist check:** CLEAR — not a variant of B01-B14
 - **Date:** 2026-03-26
-- **Flag:** NEEDS_ISOMORPHISM_ANALYSIS before implementation
+- **Isomorphism analysis (2026-03-26 Day 3):**
+  TTBFL's first-class levels are genuinely more expressive than prenex polymorphism IN TYPE THEORY because type theories support recursive definitions with level-varying recursive calls (e.g., incr k (succ n) = incr n [k+1]). Monomorphization provably fails for such definitions.
+  However, ExprNode trees are FINITE expression trees, not recursive programs. A tree that "computes its own depth" still produces a fixed finite depth value. Without recursion in the tree language, every first-class-depth tree is equivalent to some fixed-depth tree — the depth computation just selects which fixed depth to use.
+  Therefore: first-class depth in the CURRENT ExprNode format is ISOMORPHIC to unbounded fixed depth at unlimited resources. The FORMAT_CHANGE from TTBFL is only genuine when the language supports recursive definitions, which ExprNode trees do not.
+  **COROLLARY:** To make first-class depth genuinely expand F_theo, the system would FIRST need recursive tree evaluation (trees calling themselves). This is Candidate 1 (self_encode) extended with depth-varying recursion. The combination self_encode + first-class depth could be genuinely new — a self-referential tree that adjusts its recursion depth based on its own structure. This is noted as a potential Candidate 8b.
+- **Status:** RECLASSIFIED as F_EFF_GAIN_UNDER_CONSTRAINT. Not worth implementing alone. Revisit if recursive tree evaluation (self_encode with explicit recursion depth) is developed.
+- **V5 verdict:** ISOMORPHIC (at unlimited resources, equivalent to unbounded fixed depth)

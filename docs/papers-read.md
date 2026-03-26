@@ -53,3 +53,8 @@
 [2026-03-26] arxiv:2603.18073 "Continually self-improving AI (Yang)" — VERDICT: NOT (content modification within fixed LM format)
 [2026-03-26] arxiv:2508.07932 "X-evolve: Solution space evolution powered by LLMs" — VERDICT: NOT (parameter space search within fixed program template)
 [2026-03-26] arxiv:2602.06511 "Evolutionary Generation of Multi-Agent Systems" — VERDICT: NOT (representation choice survey, no format expansion)
+[2026-03-26] arxiv:2103.00223 "Generalized Universe Hierarchies and First-Class Universe Levels (Kovács 2021)" — VERDICT: DEEPER (original first-class levels paper, IR used for transfinite hierarchies, semantic model)
+[2026-03-26] arxiv:2212.03284 "Type Theory with Explicit Universe Polymorphism (BCDE, revised)" — VERDICT: DEEPER (precursor to 2603.04010, level constraints for higher-rank polymorphism)
+[2026-03-26] arxiv:2402.15074 "Interpretation of Inaccessible Sets in MLTT with Mahlo Universe (Setzer)" — VERDICT: DEEPER (Agda formalization, eliminates extra universe via accessibility predicate, relevant to IR extensions)
+[2026-03-26] arxiv:2506.10943 "Self-Adapting Language Models" — VERDICT: NOT (weight updates from interaction, content modification within fixed LM format)
+[2026-03-26] Dybjer-Setzer 1999 "A Finite Axiomatization of Inductive-Recursive Definitions" (TLCA 1581) — VERDICT: DEEPER (PRIMARY SOURCE: IR as initial algebras in slice categories, generic formation/intro/elim/eq rules)
