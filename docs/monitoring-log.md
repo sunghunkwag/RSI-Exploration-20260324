@@ -41,7 +41,7 @@
 - Cumulative: arxiv 79, GitHub 37
 
 ### arxiv highlights
-- Darwin Gödel Machine v2 (2505.22954, updated 2026-03-12) — DEEPER_READ: SWE-bench 20%→50%. Self-modifying coding agents via archive + foundation model mutation. CAGE: content modification, not format change. No formal transition structure.
+- Darwin Gödel Machine v2 (2505.22954, updated 2026-03-12) — DEEPER_READ: SWE-bench 20%→ 50%. Self-modifying coding agents via archive + foundation model mutation. CAGE: content modification, not format change. No formal transition structure.
 - Gödel Agent (2410.04444) — RELEVANT: LLM-driven self-referential recursive improvement. Prompt-driven behavioral modification, not representational. V3: EXTERNAL_INJECTION.
 - DéjàQ (2601.01931) — RELEVANT: MAP-Elites for evolving diverse RL training problems. LLM-guided mutators. Joint problem-model co-evolution. No representation format change.
 - Dominated Novelty Search (2502.00593) — RELEVANT: replaces grid-based archive with dynamic fitness transformations. Search procedure change, not representation change.

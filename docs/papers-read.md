@@ -42,7 +42,7 @@
 [2026-03-26] arxiv:2502.20485 "Bounded First-Class Universe Levels in Dependent Type Theory" — VERDICT: DEEPER
 [2026-03-26] arxiv:2512.16342 "Mechanizing Operads with Event-B" — VERDICT: RELEVANT
 [2026-03-26] arxiv:2503.06091 "Theta Theory: Operads and Coloring" — VERDICT: RELEVANT
-[2026-03-26] arxiv:2212.09060 "Parsing as a lifting problem and Chomsky-Schützenberger" — VERDICT: DEEPER
+[2026-03-26] arxiv:2212.09060 "Parsing as a lifting problem and Chomsky-Schützen berger" — VERDICT: DEEPER
 [2026-03-26] arxiv:2602.04892 "Doc2Spec: Synthesizing Formal Specifications via Grammar Induction" — VERDICT: NOT (template-based, not adaptive)
 [2026-03-26] arxiv:2510.02524 "Unraveling Syntax: How LMs Learn Context-Free Grammars" — VERDICT: RELEVANT
 [2026-03-26] arxiv:2506.09046 "Agentic Neural Networks: Self-Evolving via Textual Backpropagation" — VERDICT: NOT (content modification within fixed NN format)
