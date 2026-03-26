@@ -416,7 +416,7 @@ def main():
     if any_depth_4 and improvement > 0.01:
         verdict = "GENUINE_RECURSIVE_SELF_IMPROVEMENT"
         desc = "Recursive self-improvement confirmed: the system uses self-generated tools\n" \
-               "    to create better tools, which in turn improve performance — recursive loop active."
+               "    to create better tools, which in turn improve performance \u2014 recursive loop active."
     elif any_depth_3 and improvement > 0.01:
         verdict = "PARTIAL_RSI_DEPTH_3"
         desc = "Partial self-improvement: the system extracts new patterns using generated ops,\n" \
